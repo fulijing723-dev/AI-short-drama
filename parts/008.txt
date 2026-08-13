@@ -1,4 +1,87 @@
-able = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+irements-list');
+  const requirementCount = document.querySelector('#requirement-count');
+  const currentRoute = document.querySelector('#current-route');
+  const pageCount = document.querySelector('#page-count');
+  const pageById = new Map(model.pages.map((item) => [item.id, item]));
+  let activePageId = app.dataset.screen || 'home';
+
+  pageCount.textContent = String(model.pages.length);
+
+  function renderMenu(query = '') {
+    const normalized = query.trim().toLocaleLowerCase('zh-CN');
+    menu.innerHTML = '';
+    let visibleCount = 0;
+    for (const [groupId, groupLabel] of model.groups) {
+      const pages = model.pages.filter((item) => item.group === groupId && (!normalized || `${item.title} ${item.id}`.toLocaleLowerCase('zh-CN').includes(normalized)));
+      if (!pages.length) continue;
+      const heading = document.createElement('div');
+      heading.className = 'menu-group';
+      heading.innerHTML = `<span>${groupLabel}</span><b>${pages.length}页</b>`;
+      menu.append(heading);
+      for (const item of pages) {
+        visibleCount += 1;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.pageId = item.id;
+        button.classList.toggle('active', item.id === activePageId);
+        button.setAttribute('aria-current', item.id === activePageId ? 'page' : 'false');
+        button.innerHTML = `<span>${String(model.pages.indexOf(item) + 1).padStart(2, '0')}</span>${item.title}`;
+        button.addEventListener('click', () => window.navigate(item.id, { replace: true }));
+        menu.append(button);
+      }
+    }
+    if (!visibleCount) menu.innerHTML = '<div class="empty-search">没有匹配的页面</div>';
+  }
+
+  function renderRequirements(page) {
+    title.textContent = page.title;
+    description.textContent = page.description;
+    currentRoute.textContent = page.id;
+    requirementCount.textContent = String(page.requirements.length);
+    requirementsList.innerHTML = '';
+    for (const [index, item] of page.requirements.entries()) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'requirement-card';
+      card.dataset.requirementId = item.id;
+      card.innerHTML = `<span class="requirement-number">${index + 1}</span><h3>${item.title}</h3><p>${item.copy}</p>`;
+      card.addEventListener('click', () => focusPreviewRequirement(item.id));
+      requirementsList.append(card);
+    }
+  }
+
+  function setPage(pageId) {
+    const page = pageById.get(pageId) || pageById.get('home');
+    activePageId = page.id;
+    renderMenu(search.value);
+    renderRequirements(page);
+    menu.querySelector(`[data-page-id="${CSS.escape(page.id)}"]`)?.scrollIntoView({ block: 'nearest' });
+    window.setTimeout(() => installAnnotations(page), 40);
+  }
+
+  function findScrollContainer() {
+    const candidates = ['.scroll-region', '.commerce-scroll', '.account-scroll', '.renewal-scroll', '.nomination-panel-scroll', '.collection-scroll'];
+    for (const selector of candidates) {
+      const element = app.querySelector(selector);
+      if (element && element.scrollHeight > element.clientHeight + 8) return element;
+    }
+    return null;
+  }
+
+  function installScrollTop() {
+    let button = canvas.querySelector('.review-scroll-top');
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'review-scroll-top';
+      button.setAttribute('aria-label', '返回页面顶部');
+      button.textContent = '↑';
+      canvas.append(button);
+    }
+    const scroller = findScrollContainer();
+    if (!scroller) { button.classList.remove('visible'); return; }
+    const update = () => {
+      const available = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
       const threshold = Math.min(scroller.clientHeight * 0.55, Math.max(80, available * 0.65));
       button.classList.toggle('visible', available > 120 && scroller.scrollTop > threshold);
     };
