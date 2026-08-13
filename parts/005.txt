@@ -42,7 +42,11 @@
 
   function promo() {
     const config = window.ShortDramaAdminConfig?.homeBanner;
-    if (!config?.enabled || !config.title) return '';
+    const parseTime = (value) => value ? new Date(String(value).replace(' ', 'T')).getTime() : NaN;
+    const now = Date.now();
+    const startsAt = parseTime(config?.startAt);
+    const endsAt = parseTime(config?.endAt);
+    if (!config?.enabled || !config.title || (Number.isFinite(startsAt) && now < startsAt) || (Number.isFinite(endsAt) && now > endsAt)) return '';
     return `<section class="promo" data-config-source="home-banner" ${config.targetRoute ? `data-nav="${config.targetRoute}" role="link" tabindex="0"` : ''}>
       <div class="promo-kicker">${config.kicker || ''}</div>
       <h2>${config.title}</h2>
@@ -236,12 +240,4 @@
   function readPathParts(key) {
     if (typeof key !== 'string') return [];
     const parts = key.split('.');
-    return parts.every(isSafeStateKey) ? parts : [];
-  }
-
-  function writablePathParts(key) {
-    const parts = readPathParts(key);
-    const [topLevel] = parts;
-    if (!WRITABLE_STATE_KEYS.has(topLevel)) throw new TypeError(`State field is not writable: ${topLevel || key}`);
-    if ((topLevel === 'selectedTab' || topLevel === 'drawer') && parts.length !== 1) {
- 
+    return parts.every(isSafeStateKey) ? parts : [
