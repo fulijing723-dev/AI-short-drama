@@ -1,0 +1,64 @@
+
+    update();
+  }
+
+  function installAnnotations(page) {
+    if (app.dataset.screen !== page.id) return;
+    for (const marker of app.querySelectorAll('.review-marker')) marker.remove();
+    for (const target of app.querySelectorAll('.review-annotated-target, .review-focus-target')) target.classList.remove('review-annotated-target', 'review-focus-target');
+    for (const [index, item] of page.requirements.entries()) {
+      const target = app.querySelector(item.selector);
+      if (!target) continue;
+      if (getComputedStyle(target).position === 'static') target.style.position = 'relative';
+      target.classList.add('review-annotated-target');
+      const marker = document.createElement('button');
+      marker.type = 'button';
+      marker.className = 'review-marker';
+      marker.dataset.requirementId = item.id;
+      marker.setAttribute('aria-label', `查看需求 ${index + 1}：${item.title}`);
+      marker.textContent = String(index + 1);
+      marker.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selectRequirement(item.id, true);
+      });
+      target.append(marker);
+    }
+    installScrollTop();
+  }
+
+  function selectRequirement(requirementId, fromMarker = false) {
+    for (const card of requirementsList.querySelectorAll('.requirement-card')) card.classList.toggle('active', card.dataset.requirementId === requirementId);
+    requirementsList.querySelector(`[data-requirement-id="${CSS.escape(requirementId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const marker = app.querySelector(`.review-marker[data-requirement-id="${CSS.escape(requirementId)}"]`);
+    if (marker) {
+      marker.classList.remove('review-pulse');
+      void marker.offsetWidth;
+      marker.classList.add('review-pulse');
+    }
+    if (!fromMarker) focusPreviewRequirement(requirementId, false);
+  }
+
+  function focusPreviewRequirement(requirementId, selectCard = true) {
+    if (selectCard) selectRequirement(requirementId, true);
+    const requirement = pageById.get(activePageId)?.requirements.find((item) => item.id === requirementId);
+    const target = requirement && app.querySelector(requirement.selector);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    target.classList.remove('review-focus-target');
+    void target.offsetWidth;
+    target.classList.add('review-focus-target');
+    window.setTimeout(() => target.classList.remove('review-focus-target'), 1800);
+  }
+
+  search.addEventListener('input', () => renderMenu(search.value));
+  new MutationObserver(() => {
+    const route = app.dataset.screen || 'home';
+    if (route !== activePageId) setPage(route);
+    else window.setTimeout(() => installAnnotations(pageById.get(route)), 30);
+  }).observe(app, { attributes: true, attributeFilter: ['data-screen'], childList: true });
+  setPage(activePageId);
+})();
+</script>
+</body>
+</html>
