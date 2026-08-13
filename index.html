@@ -13,7 +13,7 @@
   <main><div class="spin" aria-hidden="true"></div><strong>AI短剧评审沙盒加载中</strong><p>正在准备41个可交互页面…</p></main>
   <script>
     (async()=>{
-      const count=8;
+      const count=9;
       try{
         const parts=await Promise.all(Array.from({length:count},(_,i)=>fetch(`parts/${String(i).padStart(3,'0')}.txt`).then(r=>{if(!r.ok)throw new Error(r.status);return r.text()})));
         document.open();document.write(parts.join(''));document.close();
