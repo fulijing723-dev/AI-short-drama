@@ -1,4 +1,7 @@
-IY6Q</small></div>
+>身份凭证</h1>
+        <p>找回账号 / 换设备登录使用，请勿外泄给他人</p>
+        <div class="credential-code">邀请码：<strong>AEIY6Q</strong></div>
+        <div class="credential-qr" role="img" aria-label="原身份凭证二维码资产未随工程提供"><span>身份凭证</span><small>AEIY6Q</small></div>
         <div class="credential-site">官网：https://ai-drama.com/</div>
         <button class="account-primary" type="button" data-state-key="selections.identitySaved" data-state-value="saved">保存身份凭证</button>
       </div>
@@ -302,7 +305,7 @@ IY6Q</small></div>
         <header class="search-row isolated-ad-top"><span class="brand-mark">AI</span><span class="static-search-box">${icon('search')}<span>搜索短剧、剧情、关键词...</span></span><span class="round-icon">${icon('trophy')}</span><span class="recharge">金币充值</span></header>
         <div class="horizontal-scroll isolated-ad-categories" aria-label="内容分类" data-config-source="first-level-categories">${window.ShortDramaAdminConfig.firstLevelCategories.filter((item) => item.enabled).sort((a, b) => a.order - b.order).map((item, index) => `<span class="channel ${index === 0 ? 'active' : ''}" data-category-key="${item.key}">${item.label}</span>`).join('')}</div>
         <section class="configured-ad-section isolated-ad-section" aria-label="广告占位宫格"><div class="configured-ad-grid">${isolatedAds.map(isolatedAdCard).join('')}</div></section>
-        ${promo().replace('class="promo"', 'class="promo isolated-ad-banner"')}
+        ${promo().replace('class="promo"', 'class="promo isolated-ad-banner"').replace(/\sdata-nav="[^"]*"\srole="link"\stabindex="0"/, '')}
         <section class="isolated-ad-content"><div class="section-head"><h2>精选原创</h2><span class="more">更多 ›</span></div><article class="featured"><div class="featured-copy"><h3>重生之征服郭伯母第二季</h3><div class="tag-row"><span class="tag accent">AI原创</span><span class="tag">全5集</span></div><p>精彩短剧，追更不停。</p><span class="watch-btn">立即看</span></div><div class="poster-frame">${img('poster-01.png', '重生之征服郭伯母第二季')}<span class="poster-badge member">会员</span><span class="heat">44.0万热度</span></div></article><div class="poster-grid">${window.ShortDramaComponents.posterCard({ file: 'poster-02.png', title: '回村逍遥记', badge: '金币', heat: '150万热度', source: 'AI原创', episodes: '全10集' })}${window.ShortDramaComponents.posterCard({ file: 'poster-04.png', title: '我的炮友是妇科医生', badge: '金币', heat: '113万热度', source: 'AI原创', episodes: '全9集' })}</div></section>
       </div>
       ${staticTabbar}
@@ -864,11 +867,3 @@ IY6Q</small></div>
     };
     scroller.addEventListener('scroll', update, { passive: true });
     button.onclick = () => scroller.scrollTo({ top: 0, behavior: 'smooth' });
-    update();
-  }
-
-  function installAnnotations(page) {
-    if (app.dataset.screen !== page.id) return;
-    for (const marker of app.querySelectorAll('.review-marker')) marker.remove();
-    for (const target of app.querySelectorAll('.review-annotated-target, .review-focus-target')) target.classList.remove('review-annotated-target', 'review-focus-target');
-    for (const [i
