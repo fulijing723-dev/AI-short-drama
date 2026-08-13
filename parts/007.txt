@@ -1,0 +1,890 @@
+服</h1><p><i></i>通常几分钟内回复</p></div></header>
+        <div class="service-empty">${icon('headset')}<p>有任何问题都可以留言，客服会尽快回复你～</p></div>
+        <div class="service-compose"><button data-account-action="attachment" aria-label="添加图片或附件">＋</button><input data-state-key="inputs.serviceMessage" placeholder="请输入你的问题…" aria-label="请输入你的问题"><button data-account-action="send" aria-label="发送">➤</button></div>
+      </section>
+    </section>`;
+  }
+
+  function bindInviteScreen() {
+    return `<section class="screen account-screen"><div class="account-scroll bind-invite-scroll">${accountHeader('绑定邀请码', 'settings')}
+      <section class="account-form-card"><label for="invite-code">邀请码</label><input id="invite-code" data-state-key="inputs.inviteCode" placeholder="请输入邀请码" autocomplete="off"></section>
+      <button class="account-primary account-bottom-action" type="button" data-account-action="bind">确认绑定</button>
+    </div></section>`;
+  }
+
+  function editProfileScreen() {
+    const nickname = window.getLocalState('inputs.profileNickname', '幸福的人生');
+    const signature = window.getLocalState('inputs.profileSignature', '');
+    return `<section class="screen account-screen edit-profile-screen"><div class="account-scroll edit-profile-scroll">
+      ${accountHeader('编辑资料', 'profile')}
+      <section class="edit-profile-hero">
+        <div class="edit-profile-banner"></div>
+        <label class="edit-avatar-control">${window.ShortDramaComponents.img('avatar-01.png', '幸福的人生', 'edit-profile-avatar')}<span aria-hidden="true">${icon('edit')}</span><input type="file" accept="image/*" aria-label="更换头像"></label>
+        <h2>${escapeHtml(nickname || '幸福的人生')} <span>新人</span></h2>
+        <p>头像、昵称和签名会展示在个人中心、社区头像旁和个人主页。</p>
+      </section>
+      <section class="edit-profile-form">
+        <label for="profile-nickname">昵称</label>
+        <input id="profile-nickname" maxlength="16" value="${escapeHtml(nickname)}" data-state-key="inputs.profileNickname" aria-describedby="profile-nickname-help">
+        <small id="profile-nickname-help">最多16个字符</small>
+        <label for="profile-signature">个性签名</label>
+        <textarea id="profile-signature" maxlength="60" placeholder="介绍一下自己吧" data-state-key="inputs.profileSignature">${escapeHtml(signature)}</textarea>
+      </section>
+      <button type="button" class="account-primary edit-profile-save" data-account-action="edit-save">保存资料</button>
+    </div></section>`;
+  }
+
+  function profileMemberGateScreen() {
+    return `<section class="screen account-modal-screen">
+      <div class="account-backdrop" aria-hidden="true" inert>${editProfileScreen()}</div>
+      <button type="button" class="account-scrim" data-nav="edit-profile" aria-label="关闭会员提示"></button>
+      <section class="profile-member-dialog" role="dialog" aria-modal="true" aria-labelledby="profile-member-title" aria-describedby="profile-member-copy">
+        <button type="button" class="prompt-close" data-nav="edit-profile" data-back="edit-profile" data-modal-initial-focus aria-label="关闭会员提示">×</button>
+        <header><h1 id="profile-member-title">··◆ 提示 ◆··</h1></header>
+        <p id="profile-member-copy">保存失败：修改昵称需开通 VIP 会员，成为会员后即可修改</p>
+      </section>
+    </section>`;
+  }
+
+  const routes = {
+    identity: identityScreen,
+    settings: settingsScreen,
+    'recover-account': recoverAccountScreen,
+    'version-check': versionCheckScreen,
+    'customer-service': customerServiceScreen,
+    'bind-invite': bindInviteScreen,
+    'edit-profile': editProfileScreen,
+    'profile-member-gate': profileMemberGateScreen,
+  };
+  Object.entries(routes).forEach(([id, render]) => window.registerScreen(id, render));
+  const app = document.querySelector('#app');
+  app.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+    if (event.target.closest('[data-account-action="edit-save"]')) {
+      const nickname = app.querySelector('#profile-nickname')?.value.trim() || '';
+      if (!nickname) {
+        window.showToast('请输入昵称后再保存');
+        app.querySelector('#profile-nickname')?.focus();
+        return;
+      }
+      window.navigate('profile-member-gate');
+      return;
+    }
+    if (event.target.closest('.edit-avatar-control input[type="file"]')) return;
+    if (event.target.closest('.recover-account-scroll .account-bottom-action')) {
+      const file = app.querySelector('.credential-upload input[type="file"]');
+      window.showToast(file?.files?.length ? '身份凭证已提交，审核结果将在原型内模拟通知' : '请先上传身份凭证截图');
+      if (!file?.files?.length) file?.focus();
+      return;
+    }
+    if (event.target.closest('.bind-invite-scroll .account-bottom-action')) {
+      const input = app.querySelector('#invite-code');
+      const code = input?.value.trim() || '';
+      if (!code) { window.showToast('请输入邀请码后再确认绑定'); input?.focus(); return; }
+      window.setLocalState('selections.invite_bound', code);
+      window.showToast(`邀请码 ${code} 已绑定`);
+      return;
+    }
+    if (event.target.closest('.service-compose button[aria-label="添加图片或附件"]')) {
+      window.showToast('附件上传为本地演示，不会发送到外部服务');
+      return;
+    }
+    if (event.target.closest('.service-compose button[aria-label="发送"]')) {
+      const input = app.querySelector('.service-compose input');
+      const message = input?.value.trim() || '';
+      if (!message) { window.showToast('请输入问题后再发送'); input?.focus(); return; }
+      window.setLocalState('inputs.serviceMessage', '');
+      if (input) input.value = '';
+      window.showToast('消息已加入本地演示会话，不会发送到外部客服');
+    }
+  });
+  window.ShortDramaAccountScreens = Object.freeze({ ...routes });
+})();
+
+
+/* pages/interaction.js */
+(() => {
+  'use strict';
+
+  const { icon, img, tabbar, posterCard, backButton, previewCard } = window.ShortDramaComponents;
+  const getState = (key, fallback = '') => window.getLocalState(key, fallback);
+  const comments = [
+    ['avatar-01.png', '感动的解花缘', '怎么下载app', '今天 13:32', '0'],
+    ['avatar-02.png', '曾经的研丽', '山东济南的有吗', '今天 09:39', '1'],
+    ['avatar-03.png', '漂亮的四牛', '怎么看', '今天 01:47', '0'],
+    ['avatar-04.png', '大力的嫩娟', '谁能给我看看B', '今天 00:53', '1'],
+    ['avatar-01.png', '晨伊棉', '需要字幕。', '今天 00:52', '0'],
+  ];
+
+  function escapeAttribute(value) {
+    return String(value).replace(/[&<>'"]/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[character]);
+  }
+
+  function favoriteButton(scope = 'favorite_items') {
+    const selected = getState(`selections.${scope}`, '') === 'saved';
+    return `<button type="button" class="collect-btn ${selected ? 'selected' : ''}" data-state-key="selections.${scope}" data-state-value="${selected ? 'removed' : 'saved'}" aria-pressed="${selected}">${icon('heart')}<span>收藏</span></button>`;
+  }
+
+  function summary(title, poster, tags, state, backTarget) {
+    return `<header class="detail-hero"><div class="detail-back" data-back="${backTarget}">${backButton()}</div><div class="detail-summary">${img(poster, title, 'detail-cover')}<div class="detail-copy"><h1>${title}</h1><div class="tag-row">${tags.map((tag, index) => `<span class="tag ${index ? 'violet' : 'accent'}">${tag}</span>`).join('')}</div><div class="state">${state}</div></div></div></header>`;
+  }
+
+  function detailDiscussionScreen() {
+    const draft = getState('inputs.detail_discussion', '');
+    return `<section class="screen detail-screen interaction-discussion-screen"><div class="scroll-region with-actionbar">
+      ${summary('回村逍遥记', 'poster-02.png', ['AI原创'], '已完结 · 全10集', 'home')}
+      <div class="content-tabs" aria-label="详情内容"><button type="button" class="content-tab" data-nav="detail">剧集</button><button type="button" class="content-tab active" aria-current="page" disabled>讨论 56</button></div>
+      <label class="discussion-composer">${img('avatar-01.png', '幸福的人生', 'avatar')}<input type="text" placeholder="写评论…" aria-label="写评论" value="${escapeAttribute(draft)}" data-state-key="inputs.detail_discussion"></label>
+      <div class="discussion-list">${comments.map(([avatar, author, body, time, likes], index) => { const key = `discussion_like_${index}`; const liked = getState(`selections.${key}`, '') === 'liked'; return `<article class="discussion-item">${img(avatar, '', 'avatar')}<div><strong>${author}</strong><p>${body}</p><div class="comment-meta"><span>${time}</span><button type="button" data-reply-author="${escapeAttribute(author)}">回复</button></div></div><button type="button" class="discussion-like ${liked ? 'selected' : ''}" data-state-key="selections.${key}" data-state-value="${liked ? 'idle' : 'liked'}" aria-pressed="${liked}" aria-label="点赞评论">${icon('heart')}<span>${Number(likes) + (liked ? 1 : 0)}</span></button></article>`; }).join('')}</div>
+    </div><div class="actionbar">${favoriteButton()}<button type="button" class="primary-action" data-nav="player">${icon('play')}<span>立即观看</span></button></div></section>`;
+  }
+
+  function profileShell(active, item) {
+    return `<section class="screen profile-screen interaction-profile-screen"><div class="scroll-region with-tabbar">
+      <header class="profile-head">${img('avatar-01.png', '幸福的人生', 'profile-avatar')}<div class="profile-name"><h1>幸福的人生</h1><p>ID：12895167</p></div><div class="profile-actions"><button type="button" class="round-icon" data-nav="identity" aria-label="身份凭证">${icon('ticket')}</button><button type="button" class="round-icon" data-nav="customer-service" aria-label="客服">${icon('headset')}</button><button type="button" class="round-icon" data-nav="settings" aria-label="设置">${icon('settings')}</button></div></header>
+      <div class="asset-grid"><article class="asset-card"><span class="asset-label">我的金币</span><strong>0</strong><p>可用于影视剧集</p><button type="button" class="small-action" data-nav="coin-recharge">去购买</button></article><article class="asset-card"><span class="asset-label">我的会员</span><strong>—</strong><p>当前未开通会员</p><button type="button" class="small-action" data-nav="membership">去开通</button></article></div>
+      <button type="button" class="chase-cell interaction-chase" data-nav="renewal-center"><span class="chase-mark">${icon('bolt')}</span><span class="chase-copy"><strong>催更中心</strong><span>催更想看的，投票增加更</span></span><span class="chevron">›</span></button>
+      <nav class="profile-tabs" aria-label="个人内容"><button type="button" data-nav="profile">历史</button><button type="button" data-nav="favorites" class="${active === 'favorites' ? 'active' : ''}" ${active === 'favorites' ? 'aria-current="page"' : ''}>收藏</button><button type="button" data-nav="likes" class="${active === 'likes' ? 'active' : ''}" ${active === 'likes' ? 'aria-current="page"' : ''}>点赞</button></nav>
+      <div class="poster-grid profile-grid"><div class="interaction-poster-link" role="link" tabindex="0" data-nav="detail" aria-label="${item.title}">${posterCard(item)}</div></div>
+    </div>${tabbar('我的')}</section>`;
+  }
+
+  const favoritesScreen = () => profileShell('favorites', { file: 'poster-14.png', title: '爱在咫尺天涯间', heat: '8512热度', source: '漫剧精选', episodes: '全100集' });
+  const likesScreen = () => profileShell('likes', { file: 'poster-02.png', title: '回村逍遥记', badge: '金币', heat: '150万热度', source: 'AI原创', episodes: '全10集' });
+
+  function routesScreen() {
+    const selected = getState('selections.player_route', '线路1');
+    return window.ShortDramaPlayerShell(`<button type="button" class="player-drawer-scrim" data-nav="player" data-back="player" aria-label="关闭线路选择"></button><section class="route-drawer" role="dialog" aria-modal="true" aria-labelledby="route-title"><div class="drawer-handle"></div><div class="route-drawer-head"><h1 id="route-title">切换线路</h1><button type="button" class="close-btn" data-nav="player" data-back="player" aria-label="关闭并返回播放器">×</button></div><p class="route-hint">当前播放不流畅时，可尝试切换其他线路</p>${['线路1', '线路2'].map((label) => `<button type="button" class="route-option ${selected === label ? 'selected' : ''}" data-state-key="selections.player_route" data-state-value="${label}" aria-pressed="${selected === label}"><span>${label}</span><span aria-hidden="true">${selected === label ? '✓' : ''}</span></button>`).join('')}</section>`);
+  }
+
+  function unlockDialog(kind) {
+    const isMember = kind === 'member';
+    const episode = getState('selections.player_episode', '4');
+    const title = isMember ? '开通会员' : '58金币 解锁';
+    const message = isMember ? '该短剧为 VIP 会员专享，开通会员后即可观看' : `本集需 58金币 解锁，确认解锁本集？`;
+    const confirm = isMember
+      ? '<button type="button" class="unlock-confirm" data-nav="membership">去开通</button>'
+      : `<button type="button" class="unlock-confirm" data-nav="player" data-before-state-key="selections.coin_unlocked_episode" data-before-state-value="${episode}">确认解锁</button>`;
+    return window.ShortDramaPlayerShell(`<button type="button" class="unlock-scrim" data-nav="player" aria-label="关闭${title}弹窗"></button><section class="unlock-dialog" role="dialog" aria-modal="true" aria-labelledby="unlock-title"><header><h1 id="unlock-title">◆◆ ${title} ◆◆</h1></header><p>${message}</p><footer><button type="button" class="unlock-cancel" data-nav="player" data-modal-initial-focus>取消</button>${confirm}</footer></section>`);
+  }
+
+  const coinUnlockScreen = () => unlockDialog('coin');
+  const memberUnlockScreen = () => unlockDialog('member');
+
+  function sharePromoScreen() {
+    return `<section class="screen share-promo-screen"><div class="scroll-region share-scroll"><header class="share-head"><button type="button" class="share-back" data-back="player" aria-label="返回播放器">${icon('back')}</button><h1>分享推广</h1></header><section class="share-code-card"><span class="share-code-label">MY INVITE CODE</span><strong>AEIY6Q</strong>${img('share-invite-qr.png', '邀请码 AEIY6Q 的二维码', 'share-qr')}<div class="share-card-actions"><button type="button" data-action="toast" data-message="邀请卡已保存到本地演示">保存图片</button><button type="button" class="primary" data-action="toast" data-message="邀请链接已复制">复制链接</button></div></section><section class="share-progress"><div class="share-section-head"><h2>推广进度与奖励</h2><button type="button" data-action="toast" data-message="暂无推广记录">推广记录</button></div><p>暂无推广任务</p><p>分享 AI短剧 给好友，每邀请1人，送0金币</p></section><button type="button" class="share-main-action" data-action="toast" data-message="邀请链接已复制">复制链接邀请好友</button></div></section>`;
+  }
+
+  function videoPlayerScreen() {
+    const episode = Number.parseInt(getState('selections.video_player_episode', '1'), 10) || 1;
+    const discussionOpen = getState('selections.player_drawer', 'episodes') === 'comments';
+    const previews = [['avatar-04.png', '业勇新', '求更新'], ['avatar-02.png', '完美的约', '记得是在车里啊']];
+    return `<section class="screen detail-screen video-player-screen"><div class="scroll-region with-actionbar">
+      ${summary('少妇白洁', 'poster-03.png', ['大神精选', '魔改'], '已完结 · 全9集', 'topic-collection')}
+      <div class="section-head"><h2>热门评论</h2></div><div class="comment-preview horizontal-scroll">${previews.map((item) => previewCard(...item)).join('')}</div>
+      <div class="content-tabs" aria-label="短剧内容"><button type="button" class="content-tab ${discussionOpen ? '' : 'active'}" data-state-key="selections.player_drawer" data-state-value="episodes" aria-pressed="${!discussionOpen}">剧集</button><button type="button" class="content-tab ${discussionOpen ? 'active' : ''}" data-state-key="selections.player_drawer" data-state-value="comments" aria-pressed="${discussionOpen}">讨论 16</button></div>
+      ${discussionOpen ? '<div class="video-discussion-state"><p>求更新</p><p>记得是在车里啊</p></div>' : `<div class="interaction-episode-grid" role="group" aria-label="选择集数">${Array.from({ length: 9 }, (_, index) => { const number = index + 1; const paid = number >= 3; return `<button type="button" class="episode ${number === episode ? 'current' : ''} ${paid ? 'locked' : ''}" data-state-key="selections.video_player_episode" data-state-value="${number}" aria-pressed="${number === episode}">${number}${paid ? '<small>会员</small>' : ''}</button>`; }).join('')}</div>`}
+    </div><div class="actionbar">${favoriteButton()}<button type="button" class="primary-action" data-nav="player">${icon('play')}<span>立即观看</span></button></div></section>`;
+  }
+
+  const routes = { 'detail-discussion': detailDiscussionScreen, routes: routesScreen, favorites: favoritesScreen, likes: likesScreen, 'video-player': videoPlayerScreen, 'coin-unlock': coinUnlockScreen, 'member-unlock': memberUnlockScreen, 'share-promo': sharePromoScreen };
+  Object.entries(routes).forEach(([id, render]) => window.registerScreen(id, render));
+
+  const app = document.querySelector('#app');
+  function enhanceExistingInteractionPaths() {
+    const screen = app.dataset.screen;
+    if (screen === 'detail') {
+      const tabs = app.querySelectorAll('.content-tab');
+      if (tabs[1]) { tabs[1].dataset.nav = 'detail-discussion'; tabs[1].setAttribute('role', 'link'); tabs[1].tabIndex = 0; }
+      const watch = app.querySelector('.primary-action'); if (watch) watch.dataset.nav = 'player';
+      const collect = app.querySelector('.collect-btn'); if (collect) { collect.dataset.stateKey = 'selections.favorite_items'; collect.dataset.stateValue = 'saved'; }
+    }
+    if (screen === 'episodes' || screen === 'comments') {
+      const tabs = app.querySelectorAll('.drawer-tab');
+      if (tabs[0]) { tabs[0].dataset.nav = 'episodes'; tabs[0].setAttribute('role', 'link'); tabs[0].tabIndex = 0; }
+      if (tabs[1]) { tabs[1].dataset.nav = 'comments'; tabs[1].setAttribute('role', 'link'); tabs[1].tabIndex = 0; }
+      const close = app.querySelector('.close-btn'); if (close) close.dataset.nav = 'player';
+    }
+  }
+  new MutationObserver(enhanceExistingInteractionPaths).observe(app, { childList: true });
+  app.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+    const reply = event.target.closest('[data-reply-author]');
+    if (!reply || !app.contains(reply)) return;
+    const value = `@${reply.dataset.replyAuthor} `;
+    window.setLocalState('inputs.detail_discussion', value);
+    window.requestAnimationFrame(() => {
+      const input = app.querySelector('.discussion-composer input');
+      if (!input) return;
+      input.focus();
+      input.setSelectionRange(value.length, value.length);
+    });
+  });
+  window.addEventListener('shortdrama:statechange', (event) => {
+    const key = String(event.detail?.key || '');
+    if (['player', 'episodes', 'comments'].includes(app.dataset.screen) && key.startsWith('selections.player_')) window.navigate(app.dataset.screen, { replace: true });
+    if (routes[app.dataset.screen] && (key.startsWith('selections.') || key === 'inputs.detail_discussion')) window.navigate(app.dataset.screen, { replace: true });
+  });
+  window.ShortDramaInteractionScreens = Object.freeze({ ...routes });
+})();
+
+
+
+</script>
+<script>(() => {
+  'use strict';
+
+  const originalScreens = window.ShortDramaCommerceScreens;
+  const originalBrowseScreens = window.ShortDramaBrowseScreens;
+  const originalCoreScreens = window.ShortDramaScreens;
+  if (!originalScreens) return;
+
+  const { icon, img, promo } = window.ShortDramaComponents;
+  const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (character) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+  const searchCatalog = [
+    { file: 'poster-01.png', title: '重生之征服郭伯母第二季', badge: '会员', badgeType: 'member', heat: '43.6万热度', source: 'AI原创', episodes: '全5集', category: '动画同人', theme: '都市', recommendation: '最热', drama: 'rebirth', keywords: '重生 郭伯母 第二季 都市 动画同人' },
+    { file: 'poster-02.png', title: '回村逍遥记', badge: '金币', heat: '154万热度', source: 'AI原创', episodes: '全10集', category: '糖心Vlog', theme: '都市', recommendation: '综合', drama: 'village', keywords: '回村 逍遥 都市 糖心' },
+    { file: 'poster-03.png', title: '成为男友兄弟的母畜', badge: '金币', heat: '84.3万热度', source: '大神精选', episodes: '全7集', category: '鬼畜混剪', theme: '魔改', recommendation: '评分最高', drama: 'village', keywords: '男友 兄弟 母畜 魔改 鬼畜' },
+    { file: 'poster-12.png', title: '龙女奇遇记', badge: '金币', heat: '74.5万热度', source: 'AI原创', episodes: '全6集', category: '国漫女神', theme: '恐怖故事', recommendation: '最新', drama: 'rebirth', keywords: '龙女 奇遇 国漫 古装 恐怖故事' },
+    { file: 'poster-04.png', title: '我的炮友是妇科医生', badge: '金币', heat: '137万热度', source: 'AI原创', episodes: '全8集', category: '糖心Vlog', theme: '都市', recommendation: '最新', drama: 'doctor', keywords: '炮友 妇科医生 都市 糖心' },
+    { file: 'poster-10.png', title: '荒岛美人劫', badge: '金币', heat: '152万热度', source: 'AI原创', episodes: '全9集', category: '鬼畜混剪', theme: '魔改', recommendation: '综合', drama: 'village', keywords: '荒岛 美人 求生 魔改 鬼畜' },
+    { file: 'poster-09.png', title: '恐怖怪谈', badge: '金币', heat: '37.2万热度', source: '大神精选', episodes: '全6集', category: '国漫女神', theme: '恐怖怪谈', recommendation: '最新', drama: 'village', keywords: '恐怖 怪谈 规则 悬疑' },
+  ];
+
+  const isolatedAds = Array.from({ length: 24 }, (_, index) => index + 1);
+
+  function isolatedAdCard(index) {
+    return `<article class="configured-ad-card isolated-ad-card" aria-label="广告占位符${index}"><span class="configured-ad-image"><i>广告位</i></span><strong>广告名称</strong></article>`;
+  }
+
+  function isolatedHomeAdsScreen() {
+    const staticTabbar = `<nav class="tabbar isolated-static-tabbar" aria-label="主要导航">${[['home', '首页'], ['wand', '魔改短剧'], ['heart', '心愿榜单'], ['grid', '专题'], ['user', '我的']].map(([iconName, label], index) => `<span class="nav-item ${index === 0 ? 'active' : ''}" ${index === 0 ? 'aria-current="page"' : ''}>${icon(iconName)}<span>${label}</span></span>`).join('')}</nav>`;
+    return `<section class="screen home-screen isolated-home-ads">
+      <div class="scroll-region with-tabbar isolated-ad-scroll">
+        <header class="search-row isolated-ad-top"><span class="brand-mark">AI</span><span class="static-search-box">${icon('search')}<span>搜索短剧、剧情、关键词...</span></span><span class="round-icon">${icon('trophy')}</span><span class="recharge">金币充值</span></header>
+        <div class="horizontal-scroll isolated-ad-categories" aria-label="内容分类" data-config-source="first-level-categories">${window.ShortDramaAdminConfig.firstLevelCategories.filter((item) => item.enabled).sort((a, b) => a.order - b.order).map((item, index) => `<span class="channel ${index === 0 ? 'active' : ''}" data-category-key="${item.key}">${item.label}</span>`).join('')}</div>
+        <section class="configured-ad-section isolated-ad-section" aria-label="广告占位宫格"><div class="configured-ad-grid">${isolatedAds.map(isolatedAdCard).join('')}</div></section>
+        ${promo().replace('class="promo"', 'class="promo isolated-ad-banner"')}
+        <section class="isolated-ad-content"><div class="section-head"><h2>精选原创</h2><span class="more">更多 ›</span></div><article class="featured"><div class="featured-copy"><h3>重生之征服郭伯母第二季</h3><div class="tag-row"><span class="tag accent">AI原创</span><span class="tag">全5集</span></div><p>精彩短剧，追更不停。</p><span class="watch-btn">立即看</span></div><div class="poster-frame">${img('poster-01.png', '重生之征服郭伯母第二季')}<span class="poster-badge member">会员</span><span class="heat">44.0万热度</span></div></article><div class="poster-grid">${window.ShortDramaComponents.posterCard({ file: 'poster-02.png', title: '回村逍遥记', badge: '金币', heat: '150万热度', source: 'AI原创', episodes: '全10集' })}${window.ShortDramaComponents.posterCard({ file: 'poster-04.png', title: '我的炮友是妇科医生', badge: '金币', heat: '113万热度', source: 'AI原创', episodes: '全9集' })}</div></section>
+      </div>
+      ${staticTabbar}
+    </section>`;
+  }
+
+  if (originalCoreScreens?.home) {
+    window.registerScreen('home', () => originalCoreScreens.home().replace(/\s*<button[^>]*class="home-ad-preview-entry"[\s\S]*?<\/button>/, ''));
+  }
+  window.registerScreen('home-ads', isolatedHomeAdsScreen);
+
+  function readSearchHistory() {
+    const raw = window.getLocalState('inputs.search_history', '');
+    if (!raw) return ['滴滴', '重生之征服郭伯母第二季', '神'];
+    try { return JSON.parse(raw); } catch { return []; }
+  }
+
+  function writeSearchHistory(items) {
+    window.setLocalState('inputs.search_history', JSON.stringify([...new Set(items)].slice(0, 8)));
+  }
+
+  function searchCard(item) {
+    return `<button type="button" class="search-result-card" data-nav="detail" data-before-state-key="selections.selected_drama" data-before-state-value="${item.drama}" aria-label="查看${escapeHtml(item.title)}详情">
+      <span class="search-result-cover">${img(item.file, item.title, 'search-result-image')}<i class="search-result-badge ${item.badgeType === 'member' ? 'member' : ''}">${item.badge}</i><b>🔥 ${item.heat}</b></span>
+      <strong>${escapeHtml(item.title)}</strong><span class="search-result-meta"><small>${item.source}</small><small>${item.episodes}</small></span>
+    </button>`;
+  }
+
+  function filterSearchCatalog(query) {
+    const normalized = query.trim().toLocaleLowerCase('zh-CN');
+    const category = window.getLocalState('selections.search_category', '全部分类');
+    const theme = window.getLocalState('selections.search_theme', '全部主题');
+    const recommendation = window.getLocalState('selections.search_recommendation', '全部推荐');
+    return searchCatalog.filter((item) => {
+      const keywordMatch = !normalized || `${item.title} ${item.keywords} ${item.source}`.toLocaleLowerCase('zh-CN').includes(normalized);
+      const categoryMatch = category === '全部分类' || item.category === category;
+      const themeMatch = theme === '全部主题' || item.theme === theme;
+      const recommendationMatch = recommendation === '全部推荐' || item.recommendation === recommendation || (recommendation === '完结' && item.episodes.startsWith('全'));
+      return keywordMatch && categoryMatch && themeMatch && recommendationMatch;
+    });
+  }
+
+  function searchFilterRow(key, labels) {
+    const active = window.getLocalState(`selections.search_${key}`, labels[0]);
+    return `<div class="search-filter-row" role="group" aria-label="${labels[0]}">${labels.map((label) => `<button type="button" class="search-filter-chip ${label === active ? 'active' : ''}" data-search-filter="${key}" data-search-value="${label}" aria-pressed="${label === active}">${label}</button>`).join('')}</div>`;
+  }
+
+  function searchScreen() {
+    const query = String(window.getLocalState('inputs.search_query', ''));
+    const history = readSearchHistory();
+    const hotWords = ['重生之征服郭伯母第二季', '重生之征服郭伯母第一季', '回村逍遥记', '恐怖怪谈', '规则怪谈', '妻夜怪谈', '都市', '古装', '穿越', '异能', '擦边', '魔改'];
+    const browseResults = filterSearchCatalog('');
+    const discovery = `<div class="search-discovery">
+      <section class="search-history"><h2>搜索历史</h2><div class="search-chip-cloud">${history.length ? history.map((item) => `<span class="search-history-chip"><button type="button" data-search-query="${escapeHtml(item)}">${escapeHtml(item)}</button><button type="button" data-search-remove="${escapeHtml(item)}" aria-label="删除搜索历史${escapeHtml(item)}">×</button></span>`).join('') : '<p class="search-history-empty">暂无搜索历史</p>'}</div></section>
+      <section class="search-hot"><h2>热门搜索</h2><div class="search-chip-cloud">${hotWords.map((item) => `<button type="button" class="search-hot-chip" data-search-query="${escapeHtml(item)}">${escapeHtml(item)}</button>`).join('')}</div></section>
+      <section class="search-filters"><h2>筛选</h2>${searchFilterRow('category', ['全部分类', '糖心Vlog', '鬼畜混剪', '国漫女神', '动画同人'])}${searchFilterRow('theme', ['全部主题', '恐怖怪谈', '魔改', '恐怖故事', '单体', '都市'])}${searchFilterRow('recommendation', ['全部推荐', '综合', '最新', '最热', '评分最高', '完结'])}</section>
+    </div>`;
+    const browseContent = browseResults.length ? browseResults.map(searchCard).join('') : `<div class="search-empty search-browse-empty"><strong>暂无符合筛选的短剧</strong><p>可以调整条件，或恢复全部筛选。</p><button type="button" data-search-filter-reset>重置筛选</button></div>`;
+    return `<section class="screen search-screen"><div class="scroll-region search-scroll">
+      <form class="search-page-head" role="search"><button type="button" class="search-back" data-back="home" aria-label="返回首页">‹</button><label class="search-page-field">${icon('search')}<input type="search" value="${escapeHtml(query)}" placeholder="搜索短剧、剧情、关键词…" data-state-key="inputs.search_query" aria-label="搜索短剧、剧情、关键词"></label><button type="submit" class="search-submit">搜索</button></form>
+      <div class="search-page-body">${discovery}<section class="search-browse"><div class="search-browse-head"><h2>筛选结果</h2><span>${browseResults.length} 部短剧</span></div><div class="search-browse-grid">${browseContent}</div></section></div>
+    </div></section>`;
+  }
+
+  function searchResultsScreen() {
+    const query = String(window.getLocalState('inputs.search_query', '')).trim();
+    const results = query ? filterSearchCatalog(query) : [];
+    const activeFilters = [
+      window.getLocalState('selections.search_category', '全部分类'),
+      window.getLocalState('selections.search_theme', '全部主题'),
+      window.getLocalState('selections.search_recommendation', '全部推荐'),
+    ].filter((value) => !value.startsWith('全部')).length;
+    const resultContent = results.length ? results.map(searchCard).join('') : `<div class="search-empty"><strong>${query ? `没有找到“${escapeHtml(query)}”` : '请先输入搜索关键词'}</strong><p>${query ? '换个关键词，或者调整筛选条件后再试试。' : '返回搜索页，通过关键词、历史记录或热门词发起搜索。'}</p><button type="button" data-search-reset>返回搜索页</button></div>`;
+    return `<section class="screen search-screen search-results-screen"><div class="scroll-region search-scroll">
+      <form class="search-page-head" role="search"><button type="button" class="search-back" data-back="search" aria-label="返回搜索页">‹</button><label class="search-page-field">${icon('search')}<input type="search" value="${escapeHtml(query)}" placeholder="搜索短剧、剧情、关键词…" data-state-key="inputs.search_query" aria-label="搜索短剧、剧情、关键词"></label><button type="submit" class="search-submit">搜索</button></form>
+      <div class="search-page-body"><div class="search-results-summary"><strong>${query ? `“${escapeHtml(query)}”` : '尚未输入关键词'}</strong><span>${query ? `找到 ${results.length} 部短剧${activeFilters ? ` · 已应用 ${activeFilters} 项筛选` : ''}` : '等待发起搜索'}</span></div><div class="search-result-grid ${results.length === 1 ? 'single' : ''}">${resultContent}</div></div>
+    </div></section>`;
+  }
+
+  window.registerScreen('search', searchScreen);
+  window.registerScreen('search-results', searchResultsScreen);
+
+  const coinRecords = `<div class="record-detail-list" aria-label="金币充值明细">
+    <article class="record-detail-item"><header><strong>充值 1000 金币 <em>赠20</em></strong><span class="record-state success">支付成功</span></header><div><b>到账 +1020 金币</b><span>实付 ¥100.00</span></div><p>2026-08-10 14:32 · 微信支付</p><small>订单号：AI20260810143208</small></article>
+    <article class="record-detail-item"><header><strong>充值 500 金币 <em>赠5</em></strong><span class="record-state success">支付成功</span></header><div><b>到账 +505 金币</b><span>实付 ¥50.00</span></div><p>2026-07-28 09:16 · 支付宝</p><small>订单号：AI20260728091631</small></article>
+    <article class="record-detail-item"><header><strong>充值 300 金币</strong><span class="record-state refunded">已退款</span></header><div><b>已扣回 300 金币</b><span>退款 ¥30.00</span></div><p>2026-06-18 21:05 · 微信支付</p><small>订单号：AI20260618210546</small></article>
+  </div>`;
+
+  const membershipRecords = `<div class="record-detail-list" aria-label="会员充值明细">
+    <article class="record-detail-item"><header><strong>VIP 季卡</strong><span class="record-state success">生效中</span></header><div><b>实付 ¥140.00</b><span>支付成功</span></div><p>开通：2026-08-10 14:36</p><small>有效期至 2026-11-10 · 未开启自动续费</small></article>
+    <article class="record-detail-item"><header><strong>VIP 月卡</strong><span class="record-state expired">已过期</span></header><div><b>实付 ¥50.00</b><span>支付成功</span></div><p>开通：2026-06-01 11:20</p><small>有效期至 2026-07-01 · 已到期</small></article>
+    <article class="record-detail-item"><header><strong>VIP 年卡</strong><span class="record-state refunded">已退款</span></header><div><b>退款 ¥500.00</b><span>权益已撤销</span></div><p>申请：2026-03-20 18:08</p><small>订单号：VIP20260320180812</small></article>
+  </div>`;
+
+  function replaceEmptyRecord(html, listHtml) {
+    return html
+      .replace('充值明细 <span>共0条</span>', '充值明细 <span>共3条</span>')
+      .replace(/<div class="record-empty">[\s\S]*?<\/div>/, listHtml);
+  }
+
+  window.registerScreen('coin-records', () => replaceEmptyRecord(originalScreens['coin-records'](), coinRecords).replaceAll('0 金币', '1,680 金币'));
+  window.registerScreen('membership-records', () => replaceEmptyRecord(originalScreens['membership-records'](), membershipRecords)
+    .replaceAll('尚未开通VIP', '季卡会员')
+    .replaceAll('尚未开通 VIP', '季卡会员')
+    .replace('● 未开通', '● 已开通'));
+
+  if (originalBrowseScreens?.['topic-collection']) {
+    window.registerScreen('topic-collection', () => originalBrowseScreens['topic-collection']()
+      .replaceAll('data-nav="video-player"', 'data-nav="detail" data-before-state-key="selections.selected_drama" data-before-state-value="village"'));
+  }
+
+  const app = document.querySelector('#app');
+  app.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+    const searchEntry = event.target.closest('.search-box');
+    if (searchEntry && app.contains(searchEntry)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.navigate('search');
+      return;
+    }
+    if (!['search', 'search-results'].includes(app.dataset.screen)) return;
+    const remove = event.target.closest('[data-search-remove]');
+    if (remove) {
+      event.preventDefault();
+      const value = remove.dataset.searchRemove || '';
+      writeSearchHistory(readSearchHistory().filter((item) => item !== value));
+      window.navigate('search', { replace: true });
+      return;
+    }
+    const queryControl = event.target.closest('[data-search-query]');
+    if (queryControl) {
+      event.preventDefault();
+      const value = queryControl.dataset.searchQuery || '';
+      window.setLocalState('inputs.search_query', value);
+      writeSearchHistory([value, ...readSearchHistory()]);
+      window.navigate('search-results');
+      return;
+    }
+    const filter = event.target.closest('[data-search-filter]');
+    if (filter) {
+      event.preventDefault();
+      window.setLocalState(`selections.search_${filter.dataset.searchFilter}`, filter.dataset.searchValue || '');
+      window.navigate('search', { replace: true });
+      return;
+    }
+    if (event.target.closest('[data-search-reset]')) {
+      event.preventDefault();
+      window.setLocalState('inputs.search_query', '');
+      window.navigate('search');
+      return;
+    }
+    if (event.target.closest('[data-search-filter-reset]')) {
+      event.preventDefault();
+      window.setLocalState('selections.search_category', '全部分类');
+      window.setLocalState('selections.search_theme', '全部主题');
+      window.setLocalState('selections.search_recommendation', '全部推荐');
+      window.navigate('search', { replace: true });
+    }
+  }, true);
+
+  app.addEventListener('submit', (event) => {
+    const form = event.target instanceof Element ? event.target.closest('.search-page-head') : null;
+    if (!form || !app.contains(form)) return;
+    event.preventDefault();
+    const value = form.querySelector('input')?.value.trim() || '';
+    window.setLocalState('inputs.search_query', value);
+    if (value) writeSearchHistory([value, ...readSearchHistory()]);
+    window.navigate(value ? 'search-results' : 'search', { replace: app.dataset.screen === (value ? 'search-results' : 'search') });
+  }, true);
+})();
+</script>
+<script>(() => {
+  'use strict';
+  const req = (id, selector, title, copy) => ({ id, selector, title, copy });
+  const page = (id, title, group, description, requirements) => ({ id, title, group, description, requirements });
+
+  const pages = [
+    page('home', '首页', '核心流程', '聚合搜索、精选短剧和底部主导航，帮助用户快速发现并进入内容详情。', [
+      req('home-search', '.search-row', '搜索与快捷入口', '用户点击搜索框进入搜索页，也可进入排行榜或金币充值；搜索页保留筛选和历史状态。'),
+      req('home-category-config', '.horizontal-scroll[aria-label="内容频道"]', '一级分类配置', '一级分类读取后台配置，支持名称、排序、启停状态和目标页面。前台仅展示已启用且处于生效期内的分类，并按运营顺序横向排列；默认选中首个有效分类。'),
+      req('home-featured', '.featured', '精选原创主推荐', '展示运营精选短剧，点击“立即看”进入与该短剧一致的详情页。'),
+      req('home-grid', '.poster-grid', '热门短剧卡片', '双列展示热度、付费类型和集数；点击卡片进入对应短剧详情。'),
+      req('home-nav', '.tabbar', '全局主导航', '可切换首页、魔改短剧、心愿榜单、专题和我的，当前入口保持高亮。'),
+    ]),
+    page('home-ads', '首页-带广告', '核心流程', '在当前绿色首页结构中独立展示已配置广告时的页面形态，用于广告位置和内容密度评审。', [
+      req('home-ads-head', '.isolated-ad-top', '首页顶部信息', '复用当前首页的AI品牌、搜索、排行榜和金币充值布局；本页面为独立评审状态，所有入口仅展示，不触发其他页面。'),
+      req('home-ads-category', '.isolated-ad-categories', '内容分类', '与普通首页读取同一份后台一级分类配置，名称、顺序和启停状态保持一致；本独立广告评审页仅静态展示，不执行分类跳转。'),
+      req('home-ads-grid', '.isolated-ad-section', '新增广告区域', '广告区域插入分类栏下方、绿色活动Banner上方，使用24个占位广告展示布局，每行6个、共4行。占位卡仅标识“广告位”和“广告名称”。'),
+      req('home-ads-banner', '.isolated-ad-banner', '首页活动 Banner', '沿用普通首页“回馈折扣即将停止”的绿色活动Banner，广告宫格位于它的正上方；Banner在当前独立页不响应点击。'),
+      req('home-ads-content', '.isolated-ad-content', '精选短剧内容', 'Banner下方保持精选原创、主推荐短剧和双列短剧卡片，与普通首页的信息层级一致；所有内容卡保持静态。'),
+      req('home-ads-nav', '.isolated-static-tabbar', '静态底部导航', '保留首页、魔改短剧、心愿榜单、专题和我的五个导航项以及首页高亮样式，仅用于还原完整首页UI，不执行页面切换。'),
+    ]),
+    page('search', '搜索', '核心流程', '通过关键词、搜索历史、热门词和组合筛选查找短剧，并浏览符合筛选条件的推荐内容。', [
+      req('search-head', '.search-page-head', '搜索输入与提交', '用户可输入剧名、剧情或关键词；点击“搜索”或按回车后进入独立搜索结果页。空关键词不提交，返回按钮回到首页。'),
+      req('search-history', '.search-history', '搜索历史', '展示当前账号最近使用的搜索词，点击历史词直接发起搜索并进入结果页；支持单条删除，不影响热门搜索和筛选条件。'),
+      req('search-hot', '.search-hot', '热门搜索', '热门词由后台按有效搜索量和运营权重配置；点击任一热门词直接进入搜索结果页。'),
+      req('search-filters', '.search-filters', '搜索筛选', '分类、主题和推荐三组条件分别单选并保留当前选择；每组最多显示一行，超出宽度可左右滑动。筛选同时限定下方推荐内容和下一次关键词搜索范围。'),
+      req('search-browse', '.search-browse', '筛选推荐内容', '默认展示全部可用短剧，用户切换任一筛选后按分类、主题和推荐条件的交集即时过滤。卡片展示付费类型、热度、剧名、来源和集数，点击进入短剧详情。'),
+    ]),
+    page('search-results', '搜索结果页', '核心流程', '承接用户提交的关键词，展示匹配短剧及无结果反馈。', [
+      req('results-head', '.search-page-head', '关键词与再次搜索', '顶部保留已提交关键词，用户可修改后再次搜索；返回按钮回到搜索页，并保留搜索历史和筛选条件。'),
+      req('results-summary', '.search-results-summary', '结果摘要', '展示当前关键词、匹配数量及已应用筛选数量，帮助用户确认搜索范围。'),
+      req('results-list', '.search-result-grid', '搜索结果与空状态', '匹配结果展示付费类型、热度、剧名、来源和集数，点击进入短剧详情；无匹配时提供返回搜索页重新搜索的操作。'),
+    ]),
+    page('category', '分类', '内容发现', '按内容来源和排序方式浏览单件作品。', [
+      req('category-source', '.segmented', '内容来源切换', '用户可在大神精选、单件作品和影视魔改入口之间切换。'),
+      req('category-filter', '.sub-filters', '最新／推荐／全部筛选', '“最新”根据后台上架时间倒序展示；“推荐”展示后台已配置为推荐短剧且处于推荐有效期内的内容，并按运营权重排序；“全部”展示当前频道全部已上架内容。三项为单选，切换后列表回到顶部并保留当前筛选状态。'),
+      req('category-grid', '.poster-grid', '作品列表', '双列呈现封面、付费标签、热度和集数信息。'),
+    ]),
+    page('ranking', '排行榜', '内容发现', '基于观看、互动和兴趣展示 AI 推荐榜单。', [
+      req('ranking-hero', '.ranking-hero', '榜单说明', '说明榜单口径并提供返回入口。'),
+      req('ranking-tabs', '.ranking-tabs', '榜单维度', '可切换总榜、魔改、搜索、收藏和完结维度，当前维度保持高亮。'),
+      req('ranking-list', '.rank-list', '排名列表', '按顺序展示短剧、来源、推荐语和推荐量，前三名强化视觉层级。'),
+    ]),
+    page('detail', '短剧详情-剧集', '核心流程', '展示短剧信息、评论预览和可播放剧集，是进入播放器的主要承接页。', [
+      req('detail-summary', '.detail-summary', '短剧信息', '展示当前短剧封面、名称、题材标签和完结集数。'),
+      req('detail-comments', '.comment-preview', '热门评论预览', '横向展示代表性评论，用户可切换到讨论页查看完整内容。'),
+      req('detail-episodes', '.episode-grid', '剧集选择', '每一集均可点击；付费集显示金币或会员标签，点击后进入对应集播放器。'),
+      req('detail-action', '.actionbar', '收藏与立即观看', '收藏状态保存在本地；立即观看进入短剧播放器。'),
+    ]),
+    page('episodes', '选集', '核心流程', '在播放器上方打开剧集抽屉，支持换集和收藏。', [
+      req('episodes-grid', '.episodes-drawer .episode-grid', '选集面板', '展示全集与付费状态；点击任一集切换集数并返回播放器。'),
+      req('episodes-save', '.drawer-collect', '收藏短剧', '用户可在选集抽屉内收藏或取消收藏，并同步播放器收藏状态。'),
+    ]),
+    page('player', '短剧播放器', '核心流程', '沉浸式播放短剧，支持播放、点赞、评论、收藏、线路和倍速操作。', [
+      req('player-video', '.player-video-frame', '视频画面与播放', '展示当前短剧和集数，中央按钮及底部按钮均可切换播放状态。'),
+      req('player-actions', '.player-actions', '视频互动栏', '支持点赞、评论、收藏、线路和横屏；状态在页面间保持一致。'),
+      req('player-series', '.player-series', '完整剧集入口', '展示总集数，点击后从底部打开选集抽屉。'),
+      req('player-controls', '.player-controls', '播放控制', '展示时间、进度、倍速和全屏入口；倍速在 1X、1.5X、2X 间循环。'),
+    ]),
+    page('comments', '评论', '互动', '在播放器上方打开评论抽屉，保留观看上下文并允许输入评论。', [
+      req('comments-tabs', '.drawer-tabs', '剧集与评论切换', '可在剧集和评论抽屉间切换，关闭后返回播放器。'),
+      req('comments-list', '.comment-list', '评论列表', '展示用户头像、评论内容、时间、回复和点赞数量。'),
+      req('comments-input', '.comment-input', '评论输入', '用户可输入评论草稿，内容保存在本地原型状态中。'),
+    ]),
+    page('profile', '我的', '账户', '汇总用户身份、资产、催更入口和观看历史。', [
+      req('profile-head', '.profile-head', '用户信息与设置', '展示用户头像和 ID，可进入身份凭证、在线客服和设置。'),
+      req('profile-assets', '.asset-grid', '金币与会员', '展示当前资产状态，并提供充值金币和开通会员入口。'),
+      req('profile-history', '.profile-grid', '历史内容', '展示最近观看短剧，并可切换到收藏和点赞列表。'),
+      req('profile-nav', '.tabbar', '全局主导航', '“我的”保持高亮，可返回其他主模块。'),
+    ]),
+    page('category-one', 'AI漫剧分类', '内容发现', '浏览 AI 漫剧频道，并按题材筛选内容。', [
+      req('cat1-channel', '.channel-strip', '频道导航', '展示可用内容频道；未开放频道明确禁用，避免无响应。'),
+      req('cat1-filter', '.sub-filters', '漫剧题材筛选', '题材项来自后台标签字典；“漫剧精选”由后台精选开关和权重控制，“恐怖怪谈/恐怖故事”按内容绑定标签过滤。切换后仅展示同时满足频道、题材和上架状态的作品。'),
+      req('cat1-grid', '.browse-grid', '漫剧作品列表', '以双列卡片展示短剧封面、热度、来源和集数。'),
+    ]),
+    page('category-two', '擦边短剧分类', '内容发现', '浏览擦边短剧频道并切换内容排序。', [
+      req('cat2-channel', '.channel-strip', '频道导航', '当前频道保持高亮，可返回 AI 原创或切换至 AI 漫剧。'),
+      req('cat2-filter', '.sub-filters', '最新／推荐／全部筛选', '“最新”根据后台上架时间倒序；“推荐”读取后台“推荐短剧”配置，并按推荐权重与生效时间排序；“全部”展示当前频道全部有效短剧。切换时清空旧结果，避免频道数据残留。'),
+      req('cat2-grid', '.browse-grid', '短剧作品列表', '双列展示频道内容，点击作品可进入详情。'),
+    ]),
+    page('ai-remix', '魔改短剧', '内容发现', '集中展示大神精选与魔改类作品。', [
+      req('remix-channel', '.source-tabs', '魔改来源导航', '大神精选、单件作品与影视魔改保持同一组顶部 TAB 样式；切换页面时仅当前项改变高亮。'),
+      req('remix-filter', '.sub-filters', '最新／推荐／全部筛选', '“最新”按后台上架时间倒序；“推荐”展示后台配置为推荐短剧的内容，支持配置推荐生效期和人工排序权重；“全部”不限制推荐状态。切换来源 TAB 后按新来源重新应用筛选。'),
+      req('remix-grid', '.browse-grid', '魔改作品列表', '展示精选魔改短剧，点击卡片进入详情。'),
+    ]),
+    page('coin-recharge', '金币充值', '交易', '选择金币档位并查看充值说明与历史记录。', [
+      req('coin-header', '.commerce-header', '充值类型导航', '可在金币充值和会员之间切换，并进入充值记录。'),
+      req('coin-packages', '.coin-packages', '金币档位', '金币数量、售价、加赠数量、活动标签、上下架时间和排序均由后台配置；用户选择后当前档位突出显示。'),
+      req('coin-benefits', '.coin-benefit-panel', '赠送奖励与使用权限', '随当前金币档位展示实际到账奖励和可使用范围。赠送类型、赠送数量、适用权限和活动有效期均由后台配置；切换档位时内容同步更新，支付前再次以后台结果校验。'),
+      req('coin-pay', '.coin-paybar', '支付确认', '支付按钮显示当前档位；原型仅给出本地确认，不发起真实支付。'),
+    ]),
+    page('membership', '购买会员', '交易', '选择会员周期并查看会员权益。', [
+      req('member-header', '.commerce-header', '会员与金币切换', '提供返回、充值类型切换和会员记录入口。'),
+      req('member-plans', '.membership-plans', '会员套餐', '展示后台已启用的会员周期、价格、原价和活动标签，支持单选。'),
+      req('member-bonus', '.member-bonus-panel', '套餐加赠奖励', '随所选会员套餐展示对应加赠奖励；后台可配置奖励类型、数量、有效期、活动时间和是否与其他优惠叠加。无加赠时展示明确说明，不保留上一套餐奖励。'),
+      req('member-benefits', '.vip-perks', '会员权益与展开', '默认展示无限片源、免广告、极速播放、1080P和更多特权。点击“更多特权”后在当前区域下方展开该会员的全部权益，包括VIP短剧免费、免费修改签名、免费修改昵称和免费修改头像；再次点击可收起。'),
+      req('member-pay', '.member-pay-button', '开通会员', '按钮确认当前套餐，原型不会发起真实支付。'),
+    ]),
+    page('membership-records', '会员充值记录', '交易', '以底部弹层展示会员充值明细、有效期和订单状态。', [
+      req('member-record-panel', '.record-drawer', '会员记录弹层', '在原充值页上方打开，关闭后返回会员页面。'),
+      req('member-record-status', '.record-status', '会员状态摘要', '展示当前会员类型、有效期和续费状态；数据以账号会员权益服务返回结果为准。'),
+      req('member-record-list', '.record-detail-list', '会员充值明细', '按支付完成时间倒序展示套餐、实付金额、订单状态、开通时间和有效期；退款或过期记录使用不同状态标识。'),
+    ]),
+    page('coin-records', '金币充值记录', '交易', '以底部弹层展示金币到账、赠送和订单状态明细。', [
+      req('coin-record-panel', '.record-drawer', '金币记录弹层', '保留金币充值背景，关闭后回到充值页面。'),
+      req('coin-record-status', '.record-status', '金币余额摘要', '展示当前可用金币余额以及金币与会员权益不互通的说明。'),
+      req('coin-record-list', '.record-detail-list', '金币充值明细', '按到账时间倒序展示购买金币、赠送金币、实付金额、支付渠道、订单号和订单状态；退款记录需同步扣回对应金币。'),
+    ]),
+    page('wishlist', '心愿榜单', '提名与催更', '查看魔改心愿排行、投票并发起新的短剧提名。', [
+      req('wish-hero', '.wish-hero', '心愿榜介绍与提名', '说明心愿榜用途，点击“我要提名”打开提名面板。'),
+      req('wish-stats', '.wish-stats', '心愿数据', '展示上榜短剧、累计票数、参与人数和个人可用票数。'),
+      req('wish-directions', '.wish-directions', '魔改方向筛选', '按都市、古装、重生、超能等方向筛选榜单。'),
+      req('wish-list', '.wish-rank-list', '心愿排行与投票', '展示排行、简介和票数；用户可为未投项目投票。'),
+    ]),
+    page('nominate', '我要提名', '提名与催更', '从站内短剧中选择希望魔改的内容。', [
+      req('nominate-tabs', '.nomination-tabs', '资源类型', '可在站内短剧和未收录资源两种提名方式之间切换。'),
+      req('nominate-search', '.nomination-search-field', '搜索短剧', '按剧名或题材过滤站内短剧，输入状态持续保存。'),
+      req('nominate-list', '.nomination-drama-list', '短剧选择', '选择一部短剧后进入魔改方向步骤。'),
+      req('nominate-submit', '.nomination-submit-bar', '提交校验', '未选择短剧时给出明确提示，不提交无效提名。'),
+    ]),
+    page('remix-direction', '选择魔改方向', '提名与催更', '确认已选短剧并选择具体魔改方向。', [
+      req('direction-drama', '.selected-drama-card', '已选短剧', '展示上一步选择的短剧，用户可返回重新选择。'),
+      req('direction-options', '.remix-direction-options', '魔改方向', '以单选方式选择都市、古装、重生、超能等方向，支持键盘切换。'),
+      req('direction-copy', 'label[for="remix-description"]', '详细描述', '补充想要的剧情方向和改编要求；输入内容与所选短剧、魔改方向一起提交审核。'),
+      req('direction-submit', '.nomination-submit-bar', '提交提名', '方向必选；提交成功后给出反馈并返回心愿榜。'),
+    ]),
+    page('nominate-missing', '提名未收录资源', '提名与催更', '提交站内尚未收录的短剧和魔改设想。', [
+      req('missing-tabs', '.nomination-tabs', '资源类型切换', '可返回站内短剧选择方式。'),
+      req('missing-form', '.nominate-missing-scroll', '未收录资源表单', '填写剧名、最多三个标签、简介、封面、方向和详细描述。'),
+      req('missing-upload', '.nomination-upload-row', '本地封面选择', '可选择参考图片并显示文件名，文件不上传到外部服务。'),
+      req('missing-submit', '.nomination-submit-bar', '提名校验与完成', '剧名和方向为必填；完成后返回心愿榜。'),
+    ]),
+    page('renewal-center', '催更中心', '提名与催更', '通过签到获取催更票，并为连更短剧投票。', [
+      req('renewal-hero', '.renewal-hero', '催更票概览', '说明催更机制并展示当前可用票数。'),
+      req('renewal-checkin', '.renewal-days', '每日签到', '当天可签到领取催更票，未来日期不可提前点击。'),
+      req('renewal-stats', '.renewal-stats', '催更数据', '展示连载数量、个人催更、参与人次和达标加更。'),
+      req('renewal-list', '.renewal-rank-list', '连更热剧榜', '用户可使用催更票投票或取消，票数和榜单票数同步更新。'),
+    ]),
+    page('topics', '专题', '内容发现', '以策划专题组织不同题材和内容合集。', [
+      req('topics-hero', '.topics-hero', '专题总览', '说明专题策划定位并提供视觉引导。'),
+      req('topics-list', '.topic-list', '专题列表', '展示多个专题卡片和简介，点击进入对应专题合集。'),
+      req('topics-nav', '.tabbar', '全局主导航', '专题入口保持高亮，可切换其他主模块。'),
+    ]),
+    page('topic-collection', '专题合集', '内容发现', '展示某一专题的介绍、标签和收录短剧。', [
+      req('collection-head', '.collection-head', '专题介绍', '展示专题名称、说明和内容标签，并提供返回。'),
+      req('collection-grid', '.collection-grid', '合集内容', '展示专题收录短剧；点击作品进入对应播放详情。'),
+    ]),
+    page('identity', '身份凭证', '账户', '展示用于找回账号和换设备登录的身份凭证。', [
+      req('identity-card', '.identity-card', '身份凭证卡', '展示邀请码、凭证图形和品牌官网，提醒用户妥善保管。'),
+      req('identity-save', '.account-primary', '保存凭证', '点击后记录本地保存状态，不调用外部相册服务。'),
+    ]),
+    page('settings', '设置', '账户', '提供邀请码绑定、账号找回、缓存清理和版本检测。', [
+      req('settings-header', '.account-header', '设置页头', '显示当前页面并提供返回“我的”的入口。'),
+      req('settings-list', '.account-settings-list', '设置功能列表', '每一项说明功能用途；可进入子页面或执行本地缓存清理。'),
+    ]),
+    page('recover-account', '找回老账号', '账户', '通过身份凭证截图模拟找回历史账号。', [
+      req('recover-header', '.account-header', '返回设置', '保留清晰返回路径，退出后回到设置。'),
+      req('recover-upload', '.credential-upload', '上传身份凭证', '选择本地身份凭证截图，未选择文件时不允许提交。'),
+      req('recover-submit', '.account-bottom-action', '提交找回', '校验文件后给出本地模拟审核反馈，不发送到外部服务。'),
+    ]),
+    page('version-check', '版本检测', '账户', '以模态弹窗反馈当前版本状态。', [
+      req('version-dialog', '.version-dialog', '版本结果', '显示当前已是最新版本，并保持设置页背景上下文。'),
+      req('version-close', '.version-dialog .account-primary', '完成检测', '点击“我知道了”关闭弹窗并返回设置。'),
+    ]),
+    page('detail-discussion', '短剧详情-讨论', '互动', '查看短剧讨论、回复或点赞评论，并可进入播放器。', [
+      req('discussion-tabs', '.content-tabs', '剧集与讨论切换', '当前讨论标签高亮，可返回剧集详情。'),
+      req('discussion-compose', '.discussion-composer', '发表评论', '输入评论草稿；点击回复会自动写入 @用户名 并聚焦输入框。'),
+      req('discussion-list', '.discussion-list', '讨论列表', '展示评论、时间、回复入口和可切换的点赞状态。'),
+      req('discussion-action', '.actionbar', '收藏与观看', '可收藏当前短剧或立即进入播放器。'),
+    ]),
+    page('customer-service', '在线客服', '账户', '以底部客服面板承接用户问题和附件入口。', [
+      req('service-header', '.service-header', '客服状态', '展示 AI短剧客服身份和预计响应状态。'),
+      req('service-empty', '.service-empty', '会话空状态', '无历史消息时说明可留言咨询。'),
+      req('service-compose', '.service-compose', '问题输入与发送', '支持输入、附件反馈和发送校验；所有内容仅保存在本地演示。'),
+    ]),
+    page('routes', '线路', '互动', '在播放器上方切换播放线路。', [
+      req('routes-panel', '.route-drawer', '线路选择', '用户可在两条线路间切换，当前线路显示勾选。'),
+      req('routes-close', '.route-drawer-head .close-btn', '关闭线路', '关闭后回到同一短剧播放器，不跳离观看流程。'),
+    ]),
+    page('favorites', '收藏', '互动', '查看用户收藏的短剧并进入详情。', [
+      req('favorites-profile', '.profile-head', '用户信息', '保持与“我的”一致的账户入口。'),
+      req('favorites-tabs', '.profile-tabs', '个人内容切换', '收藏标签高亮，可切换历史或点赞。'),
+      req('favorites-grid', '.profile-grid', '收藏内容', '展示已收藏短剧，点击卡片进入详情。'),
+    ]),
+    page('bind-invite', '绑定邀请码', '账户', '填写并确认绑定推广邀请码。', [
+      req('invite-header', '.account-header', '返回设置', '提供清晰返回路径。'),
+      req('invite-form', '.account-form-card', '邀请码输入', '用户填写邀请码，内容在本地保存。'),
+      req('invite-submit', '.account-bottom-action', '确认绑定', '空值时提示填写；有效输入后给出绑定成功反馈。'),
+    ]),
+    page('likes', '点赞', '互动', '查看用户点赞过的短剧并进入详情。', [
+      req('likes-profile', '.profile-head', '用户信息', '展示账户信息和设置入口。'),
+      req('likes-tabs', '.profile-tabs', '个人内容切换', '点赞标签高亮，可切换历史或收藏。'),
+      req('likes-grid', '.profile-grid', '点赞内容', '展示已点赞短剧，点击卡片进入详情。'),
+    ]),
+    page('coin-unlock', '金币解锁弹窗', '交易', '点击金币剧集后，在播放器上下文中确认解锁。', [
+      req('coin-unlock-dialog', '.unlock-dialog', '金币确认', '说明本集价格，并提供取消与确认解锁两个明确操作。'),
+    ]),
+    page('member-unlock', '会员开通弹窗', '交易', '点击会员剧集后提示开通会员。', [
+      req('member-unlock-dialog', '.unlock-dialog', '会员提示', '说明会员专享规则，用户可取消或进入会员开通页。'),
+    ]),
+    page('share-promo', '分享推广', '互动', '从播放器分享入口查看邀请码与推广奖励。', [
+      req('share-code', '.share-code-card', '邀请码卡片', '展示邀请码、可扫码二维码，并提供保存图片与复制链接操作。'),
+      req('share-progress', '.share-progress', '推广进度', '展示推广任务与奖励规则，并提供推广记录入口。'),
+      req('share-action', '.share-main-action', '邀请好友', '复制邀请链接并给出清晰的本地操作反馈。'),
+    ]),
+    page('wishlist-all', '魔改呼声总榜-查看全部', '提名与催更', '承接心愿榜“查看全部”，集中展示完整魔改呼声排名和投票状态。', [
+      req('wishlist-all-head', '.wishlist-all-head', '榜单标题与返回', '页面标题固定为“魔改呼声总榜”；点击返回回到心愿榜，并保留此前选择的题材方向和投票结果。'),
+      req('wishlist-all-list', '.wish-rank-list', '完整榜单', '按有效呼声票从高到低排列；票数相同时依次按近七日增量、首次上榜时间排序。每项展示排名、封面、剧名、方向标签、当前票数和个人投票状态。'),
+    ]),
+    page('edit-profile', '编辑资料', '账户', '编辑头像、昵称和个性签名；保存昵称时受会员权益限制。', [
+      req('edit-profile-head', '.account-header', '页面标题与返回', '点击返回回到“我的”；未保存的昵称或签名不写入正式资料，返回前应由正式产品提示是否放弃修改。'),
+      req('edit-profile-hero', '.edit-profile-hero', '头像与资料说明', '展示当前头像、昵称和用户等级。头像来自用户上传或系统默认头像；点击头像可选择本地图片并进行裁剪。'),
+      req('edit-profile-form', '.edit-profile-form', '昵称与个性签名', '昵称最多16个字符，个性签名最多60个字符；保存前校验空值、敏感词、重复昵称和字符长度。输入内容仅在校验通过后写入用户资料。'),
+      req('edit-profile-save', '.edit-profile-save', '保存资料', '点击保存先校验输入，再校验会员权益；非会员修改昵称时进入会员提示，会员用户保存成功后同步更新“我的”、评论头像旁和个人主页。'),
+    ]),
+    page('profile-member-gate', '编辑资料会员提示', '账户', '非会员保存昵称时显示的权益拦截提示。', [
+      req('profile-gate-dialog', '.profile-member-dialog', '会员权益提示', '明确说明修改昵称需要开通 VIP；关闭按钮仅返回编辑资料，正式产品可补充“去开通会员”按钮并进入会员购买页。'),
+    ]),
+  ];
+
+  const pageRules = Object.freeze({
+    home: '数据来源：页面一级分类、运营主推、短剧卡片和排序权重均由后台配置；热度来自有效播放、点赞、评论、收藏等指标的加权结果。一级分类支持名称、排序、启停、生效时间和目标页面配置，前台只展示当前有效项并默认选中首个有效分类；配置为空时回退至“AI原创”。主推位支持配置生效时间、失效时间、目标短剧和跳转页面；下架或审核未通过内容不得展示。',
+    'home-ads': '页面用途：在普通首页绿色UI基础上独立评审广告配置状态，不与原首页、短剧详情、充值或其他页面建立入口和跳转。一级分类与普通首页共用后台配置，只同步名称、排序与启停结果。展示顺序为顶部信息、分类、24个广告占位符、绿色活动Banner、精选内容、静态底部导航。广告宫格固定每行6个、展示4行。',
+    search: '数据来源：搜索范围包含已上架短剧的剧名、别名、剧情关键词、题材和标签；热门搜索由后台按有效搜索量统计并支持运营配置。筛选规则：分类、主题、推荐条件按交集过滤，下方短剧随筛选即时更新；单组筛选保持一行并支持横向滑动。排序规则：筛选推荐内容按后台推荐权重和热度排序，关键词结果按相关度优先。搜索历史保存在当前账号，支持单条删除。',
+    'search-results': '进入条件：仅在用户提交非空关键词、点击搜索历史或热门搜索词后进入。数据来源与搜索页一致，结果按剧名相关度、别名与标签匹配度、后台推荐权重和热度综合排序；分类、主题、推荐条件按交集过滤。无结果时不推荐无关内容，提供返回搜索页修改关键词或筛选条件的入口。',
+    category: '数据来源：单件作品列表来自后台已上架且归属“单件作品”的内容。筛选规则：“最新”按后台上架时间倒序；“推荐”仅展示后台勾选“推荐短剧”的内容，并按运营排序权重、推荐生效时间排序；“全部”展示该频道全部有效内容，默认按综合权重和上架时间排序。切换筛选后应回到列表顶部并保留当前选择。',
+    ranking: '数据来源：榜单由后台统计任务按观看、搜索、收藏、完结等口径定时计算。配置规则：后台可设置统计周期、最低有效样本、人工置顶和屏蔽名单；异常流量不计入排名。页面展示最近一次更新时间，切换榜单维度后重新加载对应结果。',
+    detail: '数据来源：剧名、封面、简介、标签、集数、完结状态、解锁方式和价格均取自短剧后台。状态规则：下架剧集不可播放；已解锁、收藏、当前集数与来源页面需持续保留。点击免费集直接播放，金币集进入金币确认，会员集进入会员提示。',
+    episodes: '数据来源：剧集顺序、标题、时长、付费类型和上线状态由剧集后台配置。排序规则：默认按集序号升序；未上线集显示预告或不可点击状态。用户换集后关闭抽屉并回到播放器，已解锁和当前集状态即时同步。',
+    player: '数据来源：播放地址、线路、字幕、剧集时长和解锁方式来自内容及播放后台。播放规则：优先恢复上次播放进度；线路失败时提示切换，不自动扣费；点赞、评论、收藏、分享分别写入对应用户行为。退出播放器后保留当前短剧、集数、线路、倍速和进度。',
+    comments: '数据来源：评论列表来自当前短剧与当前剧集的审核通过评论。排序可由后台配置为热门优先或最新优先；被删除、屏蔽或风控拦截内容不展示。提交评论需校验登录、敏感词、长度和频率，成功后进入待审核或即时展示状态。',
+    profile: '数据来源：头像、昵称、用户ID、金币余额、会员状态、观看历史、收藏和点赞均来自当前账号。资产数据以服务端结果为准，历史内容按最近观看时间倒序。点击头像进入编辑资料；充值、会员、催更和设置入口分别进入对应功能页。',
+    'category-one': '数据来源：仅展示后台归属“AI漫剧”频道且已上架的内容。频道与题材标签由后台配置。“最新”类列表按上架时间倒序；运营精选由推荐开关和权重控制；未开放频道必须显示禁用态。点击作品进入详情并记录来源频道与筛选条件。',
+    'category-two': '数据来源：仅展示后台归属“擦边短剧”频道并通过内容审核的作品。筛选规则：“最新”按上架时间倒序；“推荐”读取后台推荐开关，并按运营权重排序；“全部”展示全部有效作品。切换筛选后清空旧列表，避免不同频道数据残留。',
+    'ai-remix': '数据来源：大神精选、单件作品和影视魔改由后台内容类型字段区分。筛选规则：“最新”按后台上架时间倒序；“推荐”展示后台配置为推荐短剧的内容，支持设置推荐有效期和排序权重；“全部”不限制推荐状态。点击顶部 TAB 切换来源，页面样式与筛选状态同步更新。',
+    'coin-recharge': '数据来源：金币档位、售价、基础金币、赠送奖励、适用权限、活动标签、支付渠道、排序和生效时间均由交易后台配置。切换档位时奖励与权限说明必须同步刷新，不得残留上一档内容；创建订单前重新获取并校验价格、赠送与权限配置。支付成功后按订单快照发放金币和奖励并写入充值记录，取消或失败不发放。',
+    membership: '数据来源：会员周期、原价、活动价、加赠奖励、权益文案和自动续费规则由会员后台配置。加赠奖励支持金币、会员天数、票券或活动权益，并可配置数量、有效期、活动时段、叠加规则和启停；切换套餐后立即刷新，配置为空时明确显示暂无加赠。VIP专属特权默认展示五项摘要，点击“更多特权”在下方展开全部权益，再次点击收起。购买前以后台最新套餐与奖励配置生成订单快照。',
+    'membership-records': '数据来源：展示当前账号的会员购买订单，按支付完成时间倒序。每条记录包含套餐、金额、支付状态、开通时间和到期时间；无记录显示空状态。仅展示真实订单，不允许用模拟数据填充正式页面。',
+    'coin-records': '数据来源：展示当前账号金币充值及赠送记录，按到账时间倒序。记录需包含订单号、支付金额、获得金币、赠送金币和状态；退款或撤销应同步更新。无记录时展示空状态和返回充值入口。',
+    wishlist: '数据来源：心愿项目、魔改方向、有效票数、近七日增量和个人剩余票数来自心愿后台。榜单按有效票数、近七日增量、上榜时间排序；题材筛选读取后台方向标签。每个账号每天每个项目限投一次，投票后根据“成功、今日已投、票不足”三种结果显示提示。',
+    nominate: '数据来源：可提名短剧来自后台已收录资源库，搜索匹配剧名、别名和题材标签。用户先选择短剧，再选择魔改方向；未选择内容不可提交。后台可配置每日提名次数、禁止提名名单和重复提名合并规则，提交成功后回到心愿榜。',
+    'remix-direction': '数据来源：魔改方向由后台字典配置，可调整名称、顺序和启停状态。方向为必选，详细描述为补充信息；提交时校验短剧、方向、字数和重复内容。成功后生成待审核提名，审核通过才进入公开榜单。',
+    'nominate-missing': '数据来源：用户填写未收录资源信息并选择本地封面。必填项为短剧名称和魔改方向，标签最多三个；后台需进行资源查重、版权与内容审核。提交成功进入待审核状态，不应直接出现在公开心愿榜。',
+    'renewal-center': '数据来源：连载短剧、更新时间、催更目标、个人票数和催更记录来自催更后台。签到规则：每日仅可领取一次，未来日期不可点击；催更结果包含“成功+1、今日已催、票不足需签到”三种提示。页面补充“我催过的剧”，按最近催更时间展示并同步单剧累计次数。',
+    topics: '数据来源：专题名称、封面、简介、收录短剧、排序和上下线时间由运营后台配置。仅展示生效期内且状态为已发布的专题；专题下全部内容失效时不展示空卡片。点击专题进入合集，并保留主导航专题高亮。',
+    'topic-collection': '数据来源：合集信息与收录短剧由专题后台维护，支持人工排序和定时发布。已下架短剧从合集移除或显示不可播放状态；点击有效短剧进入详情。返回专题列表时恢复原滚动位置。',
+    identity: '数据来源：身份凭证与邀请码绑定当前账号，由账号系统生成。凭证用于账号找回和换设备验证，不展示敏感登录信息。保存凭证时调用本地下载能力并给出成功或失败反馈，页面需提示用户不要公开分享。',
+    settings: '数据来源：设置项根据账号状态、客户端版本和后台功能开关动态展示。绑定邀请码、找回账号、清理缓存和版本检测均有独立结果反馈；危险或不可逆操作需二次确认。返回“我的”时保留原页面位置。',
+    'recover-account': '数据来源：用户选择本地身份凭证截图后提交账号找回申请。提交前校验文件类型、大小和是否已选择；后台进行凭证识别与账号匹配。结果应区分提交成功、凭证无效、账号不存在和审核中，避免只显示统一成功提示。',
+    'version-check': '数据来源：当前客户端版本与后台发布的最新稳定版本比较。后台可配置最低支持版本、强制更新版本、更新说明和下载地址。已是最新版时关闭返回设置；存在更新时展示版本号、更新内容及“立即更新/稍后”操作。',
+    'detail-discussion': '数据来源：当前短剧的审核通过讨论，支持热门或最新排序。回复操作自动带入目标用户，点赞状态与评论页同步；提交内容需经过登录、敏感词和频控校验。点击立即观看进入当前短剧播放器，返回时保留讨论滚动位置。',
+    'customer-service': '数据来源：客服身份、在线状态、历史会话和消息来自客服系统。用户可输入文字或添加附件；发送前校验空内容、文件类型和大小。成功后消息进入发送中、已送达或失败状态，失败项支持重试。',
+    routes: '数据来源：可用播放线路、清晰度、延迟和健康状态由播放后台返回。默认选择后台优先级最高且可用的线路；用户切换后立即重载当前进度，不改变短剧与集数。关闭面板回到同一播放器，线路不可用时给出原因和备用选择。',
+    favorites: '数据来源：展示当前账号已收藏且仍有效的短剧，默认按最近收藏时间倒序。取消收藏后列表即时移除并同步详情及播放器状态；下架内容可显示失效标识或隐藏。点击卡片进入详情，返回后恢复列表位置。',
+    'bind-invite': '数据来源：用户输入推广邀请码，后台校验格式、有效性、是否已绑定和是否为本人邀请码。绑定成功后不可重复修改，并按活动规则发放奖励；失败需区分无效、过期、已绑定和禁止自绑。输入值在提交前保留。',
+    likes: '数据来源：展示当前账号点赞过且仍有效的短剧，默认按最近点赞时间倒序。取消点赞后列表即时更新并同步播放器点赞数；内容下架时不再允许进入播放。返回后恢复当前列表滚动位置。',
+    'coin-unlock': '数据来源：本集金币价格、用户余额和解锁状态以交易后台实时校验为准。确认前展示扣除金币数；余额不足进入充值页，已解锁不重复扣费。取消后关闭弹窗并回到原播放器，确认成功后直接播放当前集。',
+    'member-unlock': '数据来源：当前会员状态、会员专享剧集和套餐入口来自会员后台。已是有效会员时直接播放；非会员显示开通提示，可取消返回播放器或进入会员购买页。关闭提示不得改变当前短剧、集数和播放进度。',
+    'share-promo': '数据来源：邀请码、二维码、推广任务、邀请人数和奖励记录来自推广后台。复制链接需包含当前用户邀请码；保存图片使用可扫码二维码和品牌信息。后台可配置奖励门槛、活动时间和风控规则，分享成功不等同于奖励到账。',
+    'wishlist-all': '数据来源：展示心愿后台中全部有效上榜项目，而非仅首页截取项。排序按有效呼声票降序，票数相同时按本周增量和首次上榜时间排序；后台可配置屏蔽、置顶和榜单刷新频率。投票状态与心愿榜主页面实时同步。',
+    'edit-profile': '数据来源：头像、昵称、签名和用户等级来自账号资料。后台可配置昵称修改是否需要会员、修改次数、敏感词和唯一性校验；头像需通过图片安全审核。保存成功后同步所有用户展示位置，失败时保留输入并说明具体原因。',
+    'profile-member-gate': '触发条件：非会员用户修改昵称并点击保存。弹窗保留编辑页输入，明确说明所需会员权益；关闭后返回编辑页，正式产品建议提供“去开通会员”入口。会员状态更新后重新保存时应跳过提示并完成资料更新。',
+  });
+
+  for (const item of pages) {
+    item.requirements.unshift(req(`${item.id}-rules`, '.screen', '页面数据与后台规则', pageRules[item.id] || '页面内容由后台有效数据生成，操作结果需明确反馈并保留合理返回路径。'));
+  }
+
+  const menuDefinition = Object.freeze([
+    ['首页', ['home', 'home-ads', 'search', 'search-results', 'ranking', 'detail', 'detail-discussion', 'player', 'episodes', 'comments', 'routes', 'coin-unlock', 'member-unlock', 'share-promo']],
+    ['魔改短剧', ['ai-remix', 'category', 'category-one', 'category-two']],
+    ['心愿榜单', ['wishlist', 'wishlist-all', 'nominate', 'remix-direction', 'nominate-missing', 'renewal-center']],
+    ['专题', ['topics', 'topic-collection']],
+    ['我的', ['profile', 'edit-profile', 'profile-member-gate', 'favorites', 'likes', 'coin-recharge', 'coin-records', 'membership', 'membership-records', 'identity', 'settings', 'recover-account', 'version-check', 'bind-invite', 'customer-service']],
+  ]);
+  const pageById = new Map(pages.map((item) => [item.id, item]));
+  const orderedPages = menuDefinition.flatMap(([group, ids]) => ids.map((id) => {
+    const item = pageById.get(id);
+    if (!item) throw new Error(`评审页面未定义：${id}`);
+    item.group = group;
+    return item;
+  }));
+  if (orderedPages.length !== pages.length || new Set(orderedPages).size !== pages.length) throw new Error('评审页面菜单必须完整覆盖41个页面且不得重复');
+
+  window.AIReviewPageModel = Object.freeze({
+    groups: Object.freeze(menuDefinition.map(([id]) => [id, id])),
+    pages: Object.freeze(orderedPages),
+  });
+})();
+</script>
+<script>(() => {
+  'use strict';
+  const model = window.AIReviewPageModel;
+  const app = document.querySelector('#app');
+  const canvas = document.querySelector('.prototype-canvas');
+  const menu = document.querySelector('#page-menu');
+  const search = document.querySelector('#page-search');
+  const title = document.querySelector('#requirement-title');
+  const description = document.querySelector('#requirement-description');
+  const requirementsList = document.querySelector('#requirements-list');
+  const requirementCount = document.querySelector('#requirement-count');
+  const currentRoute = document.querySelector('#current-route');
+  const pageCount = document.querySelector('#page-count');
+  const pageById = new Map(model.pages.map((item) => [item.id, item]));
+  let activePageId = app.dataset.screen || 'home';
+
+  pageCount.textContent = String(model.pages.length);
+
+  function renderMenu(query = '') {
+    const normalized = query.trim().toLocaleLowerCase('zh-CN');
+    menu.innerHTML = '';
+    let visibleCount = 0;
+    for (const [groupId, groupLabel] of model.groups) {
+      const pages = model.pages.filter((item) => item.group === groupId && (!normalized || `${item.title} ${item.id}`.toLocaleLowerCase('zh-CN').includes(normalized)));
+      if (!pages.length) continue;
+      const heading = document.createElement('div');
+      heading.className = 'menu-group';
+      heading.innerHTML = `<span>${groupLabel}</span><b>${pages.length}页</b>`;
+      menu.append(heading);
+      for (const item of pages) {
+        visibleCount += 1;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.pageId = item.id;
+        button.classList.toggle('active', item.id === activePageId);
+        button.setAttribute('aria-current', item.id === activePageId ? 'page' : 'false');
+        button.innerHTML = `<span>${String(model.pages.indexOf(item) + 1).padStart(2, '0')}</span>${item.title}`;
+        button.addEventListener('click', () => window.navigate(item.id, { replace: true }));
+        menu.append(button);
+      }
+    }
+    if (!visibleCount) menu.innerHTML = '<div class="empty-search">没有匹配的页面</div>';
+  }
+
+  function renderRequirements(page) {
+    title.textContent = page.title;
+    description.textContent = page.description;
+    currentRoute.textContent = page.id;
+    requirementCount.textContent = String(page.requirements.length);
+    requirementsList.innerHTML = '';
+    for (const [index, item] of page.requirements.entries()) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'requirement-card';
+      card.dataset.requirementId = item.id;
+      card.innerHTML = `<span class="requirement-number">${index + 1}</span><h3>${item.title}</h3><p>${item.copy}</p>`;
+      card.addEventListener('click', () => focusPreviewRequirement(item.id));
+      requirementsList.append(card);
+    }
+  }
+
+  function setPage(pageId) {
+    const page = pageById.get(pageId) || pageById.get('home');
+    activePageId = page.id;
+    renderMenu(search.value);
+    renderRequirements(page);
+    menu.querySelector(`[data-page-id="${CSS.escape(page.id)}"]`)?.scrollIntoView({ block: 'nearest' });
+    window.setTimeout(() => installAnnotations(page), 40);
+  }
+
+  function findScrollContainer() {
+    const candidates = ['.scroll-region', '.commerce-scroll', '.account-scroll', '.renewal-scroll', '.nomination-panel-scroll', '.collection-scroll'];
+    for (const selector of candidates) {
+      const element = app.querySelector(selector);
+      if (element && element.scrollHeight > element.clientHeight + 8) return element;
+    }
+    return null;
+  }
+
+  function installScrollTop() {
+    let button = canvas.querySelector('.review-scroll-top');
+    if (!button) {
+      button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'review-scroll-top';
+      button.setAttribute('aria-label', '返回页面顶部');
+      button.textContent = '↑';
+      canvas.append(button);
+    }
+    const scroller = findScrollContainer();
+    if (!scroller) { button.classList.remove('visible'); return; }
+    const update = () => {
+      const available = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+      const threshold = Math.min(scroller.clientHeight * 0.55, Math.max(80, available * 0.65));
+      button.classList.toggle('visible', available > 120 && scroller.scrollTop > threshold);
+    };
+    scroller.addEventListener('scroll', update, { passive: true });
+    button.onclick = () => scroller.scrollTo({ top: 0, behavior: 'smooth' });
+    update();
+  }
+
+  function installAnnotations(page) {
+    if (app.dataset.screen !== page.id) return;
+    for (const marker of app.querySelectorAll('.review-marker')) marker.remove();
+    for (const target of app.querySelectorAll('.review-annotated-target, .review-focus-target')) target.classList.remove('review-annotated-target', 'review-focus-target');
+    for (const [index, item] of page.requirements.entries()) {
+      const target = app.querySelector(item.selector);
+      if (!target) continue;
+      if (getComputedStyle(target).position === 'static') target.style.position = 'relative';
+      target.classList.add('review-annotated-target');
+      const marker = document.createElement('button');
+      marker.type = 'button';
+      marker.className = 'review-marker';
+      marker.dataset.requirementId = item.id;
+      marker.setAttribute('aria-label', `查看需求 ${index + 1}：${item.title}`);
+      marker.textContent = String(index + 1);
+      marker.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        selectRequirement(item.id, true);
+      });
+      target.append(marker);
+    }
+    installScrollTop();
+  }
+
+  function selectRequirement(requirementId, fromMarker = false) {
+    for (const card of requirementsList.querySelectorAll('.requirement-card')) card.classList.toggle('active', card.dataset.requirementId === requirementId);
+    requirementsList.querySelector(`[data-requirement-id="${CSS.escape(requirementId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const marker = app.querySelector(`.review-marker[data-requirement-id="${CSS.escape(requirementId)}"]`);
+    if (marker) {
+      marker.classList.remove('review-pulse');
+      void marker.offsetWidth;
+      marker.classList.add('review-pulse');
+    }
+    if (!fromMarker) focusPreviewRequirement(requirementId, false);
+  }
+
+  function focusPreviewRequirement(requirementId, selectCard = true) {
+    if (selectCard) selectRequirement(requirementId, true);
+    const requirement = pageById.get(activePageId)?.requirements.find((item) => item.id === requirementId);
+    const target = requirement && app.querySelector(requirement.selector);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    target.classList.remove('review-focus-target');
+    void target.offsetWidth;
+    target.classList.add('review-focus-target');
+    window.setTimeout(() => target.classList.remove('review-focus-target'), 1800);
+  }
+
+  search.addEventListener('input', () => renderMenu(search.value));
+  new MutationObserver(() => {
+    const route = app.dataset.screen || 'home';
+    if (route !== activePageId) setPage(route);
+    else window.setTimeout(() => installAnnotations(pageById.get(route)), 30);
+  }).observe(app, { attributes: true, attributeFilter: ['data-screen'], childList: true });
+  setPage(activePageId);
+})();
+</script>
+</body>
+</html>
