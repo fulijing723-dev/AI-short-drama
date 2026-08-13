@@ -1,4 +1,26 @@
-date = {
+     throw new TypeError(`State field does not accept nested keys: ${topLevel}`);
+    }
+    if ((topLevel === 'selections' || topLevel === 'inputs') && (parts.length < 1 || parts.length > 2)) {
+      throw new TypeError(`State record path must contain at most one nested key: ${key}`);
+    }
+    return parts;
+  }
+
+  function getLocalState(key, fallback) {
+    const parts = readPathParts(key);
+    if (parts.length === 0) return fallback;
+    let value = state;
+    for (const part of parts) {
+      if (!value || typeof value !== 'object' || !Object.hasOwn(value, part)) return fallback;
+      value = value[part];
+    }
+    return value;
+  }
+
+  function setLocalState(key, value) {
+    const parts = writablePathParts(key);
+    const [topLevel, nestedKey] = parts;
+    const candidate = {
       screen: state.screen,
       selectedTab: state.selectedTab,
       drawer: state.drawer,
@@ -306,6 +328,16 @@ date = {
 
 /* Admin-configurable product data */
 window.ShortDramaAdminConfig = Object.freeze({
+  homeBanner: Object.freeze({
+    enabled: true,
+    kicker: 'AI短剧上线',
+    title: '回馈折扣即将停止',
+    highlight: '8月9日起',
+    subtitle: '恢复原价',
+    targetRoute: 'coin-recharge',
+    startAt: '2026-08-09 00:00:00',
+    endAt: '2026-08-31 23:59:59',
+  }),
   firstLevelCategories: Object.freeze([
     { key: 'original', label: 'AI原创', route: 'home', enabled: true, order: 1 },
     { key: 'comic', label: 'AI漫剧', route: 'category-one', enabled: true, order: 2 },
@@ -770,9 +802,20 @@ window.ShortDramaAdminConfig = Object.freeze({
     ['poster-07.png', '荒岛美人劫', '荒岛求生加入悬疑反转', '55', 'wishlistVoteFive', '都市现代', '+3'],
   ];
 
+  function wishTodayKey() {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, '0');
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+  }
+
+  function wishClaimedToday() {
+    return window.getLocalState('selections.wish_daily_claim_date', '') === wishTodayKey();
+  }
+
   function wishTicketsRemaining() {
-    const consumed = wishlistRows.slice(1).filter((row) => window.getLocalState(`selections.${row[4]}`, '') === 'voted').length;
-    return Math.max(0, 2 - consumed);
+    if (!wishClaimedToday()) return 0;
+    const consumed = wishlistRows.filter((row) => window.getLocalState(`selections.${row[4]}_date`, '') === wishTodayKey()).length;
+    return Math.max(0, 3 - consumed);
   }
 
   function wishVotePrompt() {
@@ -780,7 +823,9 @@ window.ShortDramaAdminConfig = Object.freeze({
     const copy = {
       already: '今天已经投过啦，明天再来',
       success: '投票成功',
-      insufficient: '心愿票不足，明天再来领取吧',
+      insufficient: wishClaimedToday() ? '今日心愿票已用完，明天再来领取吧' : '心愿票不足，先领取今日3张心愿票吧',
+      claimSuccess: '领取成功，获得3张心愿票',
+      claimedToday: '今天已经领取过3张心愿票了',
     }[state];
     if (!copy) return '';
     return `<div class="wish-prompt-layer">
@@ -796,7 +841,7 @@ window.ShortDramaAdminConfig = Object.freeze({
   function wishlistRankRows(rows = wishlistRows.slice(0, 2), compact = false) {
     return rows.map(([file, title, description, votes, key, category, increase], index) => {
       const rank = wishlistRows.indexOf(rows[index]) + 1;
-      const voted = rank === 1 || window.getLocalState(`selections.${key}`, '') === 'voted';
+      const voted = window.getLocalState(`selections.${key}_date`, '') === wishTodayKey();
       return `<article class="wish-rank-item ${compact ? 'compact' : ''}" data-nav="detail" role="link" tabindex="0">
         <span class="wish-rank-number">${rank}</span>
         ${img(file, title, 'wish-rank-cover')}
@@ -834,7 +879,7 @@ window.ShortDramaAdminConfig = Object.freeze({
           <div><span>上榜短剧</span><strong>60</strong></div>
           <div><span>累计票数</span><strong>56385</strong></div>
           <div><span>参与人数</span><strong>5.6万</strong></div>
-          <div><span>我的心愿票</span><strong>${wishTicketsRemaining()}</strong></div>
+          <div class="wish-ticket-card"><div><span>我的心愿票：${wishTicketsRemaining()}张</span><small>每日可领取3张，当日有效</small></div><button type="button" class="wish-ticket-claim ${wishClaimedToday() ? 'claimed' : ''}" data-wish-ticket-claim aria-pressed="${wishClaimedToday()}">${wishClaimedToday() ? '今日已领取' : '领取3张'}</button></div>
         </div>
         <div class="wish-directions horizontal-scroll" aria-label="魔改方向">
           ${(() => {
@@ -940,18 +985,31 @@ window.ShortDramaAdminConfig = Object.freeze({
   new MutationObserver(enhanceExistingEntrypoints).observe(app, { childList: true });
   app.addEventListener('click', (event) => {
     if (!(event.target instanceof Element)) return;
+    const claim = event.target.closest('[data-wish-ticket-claim]');
+    if (claim && app.contains(claim)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (wishClaimedToday()) {
+        window.setLocalState('selections.wish_vote_prompt', 'claimedToday');
+      } else {
+        window.setLocalState('selections.wish_daily_claim_date', wishTodayKey());
+        window.setLocalState('selections.wish_vote_prompt', 'claimSuccess');
+      }
+      window.navigate(app.dataset.screen, { replace: true });
+      return;
+    }
     const vote = event.target.closest('[data-wish-vote-key]');
     if (!vote || !app.contains(vote)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     const key = vote.dataset.wishVoteKey;
-    const alreadyVoted = key === 'wishlistVoteOne' || window.getLocalState(`selections.${key}`, '') === 'voted';
+    const alreadyVoted = window.getLocalState(`selections.${key}_date`, '') === wishTodayKey();
     if (alreadyVoted) {
       window.setLocalState('selections.wish_vote_prompt', 'already');
     } else if (wishTicketsRemaining() <= 0) {
       window.setLocalState('selections.wish_vote_prompt', 'insufficient');
     } else {
-      window.setLocalState(`selections.${key}`, 'voted');
+      window.setLocalState(`selections.${key}_date`, wishTodayKey());
       window.setLocalState('selections.wish_vote_prompt', 'success');
     }
     window.navigate(app.dataset.screen, { replace: true });
@@ -1625,42 +1683,4 @@ window.ShortDramaAdminConfig = Object.freeze({
         <div class="account-brand">AI</div><h1>身份凭证</h1>
         <p>找回账号 / 换设备登录使用，请勿外泄给他人</p>
         <div class="credential-code">邀请码：<strong>AEIY6Q</strong></div>
-        <div class="credential-qr" role="img" aria-label="原身份凭证二维码资产未随工程提供"><span>身份凭证</span><small>AEIY6Q</small></div>
-        <div class="credential-site">官网：https://ai-drama.com/</div>
-        <button class="account-primary" type="button" data-state-key="selections.identitySaved" data-state-value="saved">保存身份凭证</button>
-      </div>
-    </section>`;
-  }
-
-  function settingsScreen() {
-    return `<section class="screen account-screen"><div class="account-scroll">${accountHeader('设置', 'profile')}${settingsBody()}</div></section>`;
-  }
-
-  function recoverAccountScreen() {
-    return `<section class="screen account-screen"><div class="account-scroll recover-account-scroll">
-      ${accountHeader('找回老账号', 'settings')}
-      <section class="account-form-card"><h2>身份凭证截图</h2>
-        <label class="credential-upload"><input type="file" accept="image/*" aria-label="点击上传身份凭证截图"><span>＋</span><strong>点击上传身份凭证截图</strong></label>
-        <p>身份凭证可在「我的 → 身份凭证」中保存到相册。找回时上传该二维码截图，即可切换回原账号。</p>
-      </section>
-      <button class="account-primary account-bottom-action" type="button" data-account-action="recover">提交找回</button>
-    </div></section>`;
-  }
-
-  function versionCheckScreen() {
-    return `<section class="screen account-modal-screen">
-      <div class="account-backdrop settings-backdrop" aria-hidden="true" inert><div class="account-scroll">${accountHeader('设置', 'profile')}${settingsBody()}</div></div>
-      <div class="account-scrim"></div>
-      <section class="version-dialog" role="dialog" aria-modal="true" aria-labelledby="version-title">
-        <button class="account-close" data-back="settings" aria-label="关闭">×</button>
-        <h1 id="version-title">··◆ 版本检测 ◆··</h1><p>当前已是最新版本 AI短剧 v1.0.0</p>
-        <button class="account-primary" data-back="settings" data-modal-initial-focus>我知道了</button>
-      </section>
-    </section>`;
-  }
-
-  function customerServiceScreen() {
-    return `<section class="screen account-modal-screen">${profileBackdrop()}<div class="account-scrim"></div>
-      <section class="service-panel" role="dialog" aria-modal="true" aria-labelledby="service-title">
-        <div class="account-drag"></div><button class="account-close" data-back="profile" aria-label="关闭">×</button>
-        <header class="service-header"><div class="account-brand">AI</div><div><h1 id="service-title">在线客
+        <div class="credential-qr" role="img" aria-label="原身份凭证二维码资产未随工程提供"><span>身份凭证</span><small>AE
