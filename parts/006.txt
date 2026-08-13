@@ -354,6 +354,28 @@ window.ShortDramaAdminConfig = Object.freeze({
     { key: 'live', label: '真人短剧', route: '', enabled: true, order: 5 },
     { key: 'variety', label: '综艺', route: '', enabled: true, order: 6 },
   ]),
+  wishDirections: Object.freeze([
+    { key: 'urban_modern', label: '都市现代', enabled: true, order: 1 },
+    { key: 'costume', label: '国风古装', enabled: true, order: 2 },
+    { key: 'rebirth', label: '穿越重生', enabled: true, order: 3 },
+    { key: 'supernatural', label: '异术超能', enabled: true, order: 4 },
+    { key: 'featured', label: '魔改精选', enabled: true, order: 5 },
+    { key: 'horror', label: '恐怖悬疑', enabled: true, order: 6 },
+  ]),
+  wishInsights: Object.freeze({
+    updateIntervalMinutes: 10,
+    preferenceWindow: '本周',
+    genrePreference: Object.freeze([
+      { directionKey: 'costume', validVotes: 600 },
+      { directionKey: 'urban_modern', validVotes: 390 },
+      { directionKey: 'supernatural', validVotes: 10 },
+    ]),
+    weeklyRising: Object.freeze([
+      { directionKey: 'costume', currentPeriodVotes: 72, previousComparableVotes: 66 },
+      { directionKey: 'urban_modern', currentPeriodVotes: 58, previousComparableVotes: 54 },
+      { directionKey: 'supernatural', currentPeriodVotes: 41, previousComparableVotes: 41 },
+    ]),
+  }),
   coinPackages: Object.freeze([
     { coins: '300', price: '30', bonus: '0', reward: '到账300金币', permissions: ['金币短剧解锁', '活动道具兑换'] },
     { coins: '500', price: '50', bonus: '5', reward: '到账505金币', permissions: ['金币短剧解锁', '活动道具兑换'] },
@@ -810,6 +832,20 @@ window.ShortDramaAdminConfig = Object.freeze({
     ['poster-07.png', '荒岛美人劫', '荒岛求生加入悬疑反转', '55', 'wishlistVoteFive', '都市现代', '+3'],
   ];
 
+  function enabledWishDirections() {
+    return [...(window.ShortDramaAdminConfig.wishDirections || [])].filter((item) => item.enabled).sort((a, b) => a.order - b.order);
+  }
+
+  function wishDirectionLabel(key) {
+    return enabledWishDirections().find((item) => item.key === key)?.label || key;
+  }
+
+  function filteredWishlistRows(limit = null) {
+    const active = window.getLocalState('selections.wishlistDirection', 'all');
+    const rows = active === 'all' ? wishlistRows : wishlistRows.filter((row) => row[5] === wishDirectionLabel(active));
+    return limit == null ? rows : rows.slice(0, limit);
+  }
+
   function wishTodayKey() {
     const now = new Date();
     const pad = (value) => String(value).padStart(2, '0');
@@ -860,15 +896,22 @@ window.ShortDramaAdminConfig = Object.freeze({
   }
 
   function wishlistInsights() {
-    return `<section class="wish-insight-card">
+    const config = window.ShortDramaAdminConfig.wishInsights;
+    const preferenceRows = [...config.genrePreference].filter((item) => enabledWishDirections().some((direction) => direction.key === item.directionKey));
+    const totalValidVotes = preferenceRows.reduce((sum, item) => sum + item.validVotes, 0);
+    const risingRows = [...config.weeklyRising].filter((item) => enabledWishDirections().some((direction) => direction.key === item.directionKey)).map((item) => ({ ...item, increase: item.currentPeriodVotes - item.previousComparableVotes })).sort((a, b) => b.increase - a.increase || b.currentPeriodVotes - a.currentPeriodVotes);
+    return `<section class="wish-insight-card" data-config-source="wish-genre-preference">
       <h2>大家最喜欢哪种题材</h2>
-      ${[['国风古装', 60], ['都市现代', 39], ['异术超能', 0]].map(([label, value]) => `<div class="wish-bar-row"><span>${label}</span><div><i style="width:${value}%"></i></div><strong>${value}%</strong></div>`).join('')}
+      ${preferenceRows.map((item) => {
+        const percentage = totalValidVotes ? Math.round(item.validVotes / totalValidVotes * 100) : 0;
+        return `<div class="wish-bar-row"><span>${wishDirectionLabel(item.directionKey)}</span><div><i style="width:${percentage}%"></i></div><strong>${percentage}%</strong></div>`;
+      }).join('')}
     </section>
-    <section class="wish-insight-card wish-rising-card">
+    <section class="wish-insight-card wish-rising-card" data-config-source="wish-weekly-rising">
       <h2>本周飙升</h2>
-      ${[['国风古装', '+6'], ['都市现代', '+4'], ['异术超能', '+0']].map(([label, increase], index) => `<div class="wish-rising-row"><span>${index + 1}</span><strong>${label}</strong><i class="${increase === '+0' ? 'flat' : ''}">${increase}</i></div>`).join('')}
+      ${risingRows.map((item, index) => `<div class="wish-rising-row"><span>${index + 1}</span><strong>${wishDirectionLabel(item.directionKey)}</strong><i class="${item.increase === 0 ? 'flat' : ''}">${item.increase > 0 ? '+' : ''}${item.increase}</i></div>`).join('')}
     </section>
-    <p class="wish-refresh-note">数据每10分钟更新一次</p>`;
+    <p class="wish-refresh-note">数据每${config.updateIntervalMinutes}分钟更新一次 · 统计范围：${config.preferenceWindow}</p>`;
   }
 
   function wishlistScreen() {
@@ -889,14 +932,14 @@ window.ShortDramaAdminConfig = Object.freeze({
           <div><span>参与人数</span><strong>5.6万</strong></div>
           <div class="wish-ticket-card"><div><span>我的心愿票：${wishTicketsRemaining()}张</span><small>每日可领取3张，当日有效</small></div><button type="button" class="wish-ticket-claim ${wishClaimedToday() ? 'claimed' : ''}" data-wish-ticket-claim aria-pressed="${wishClaimedToday()}">${wishClaimedToday() ? '今日已领取' : '领取3张'}</button></div>
         </div>
-        <div class="wish-directions horizontal-scroll" aria-label="魔改方向">
+        <div class="wish-directions horizontal-scroll" aria-label="魔改方向" data-config-source="wish-directions">
           ${(() => {
-            const active = window.getLocalState('selections.wishlistDirection', '全部方向');
-            return ['全部方向', '都市现代', '国风古装', '穿越重生', '异术超能', '魔改精选', '恐怖悬疑'].map((label) => `<button type="button" class="direction-chip ${label === active ? 'active' : ''}" data-state-key="selections.wishlistDirection" data-state-value="${label}" aria-pressed="${label === active}">${label}</button>`).join('');
+            const active = window.getLocalState('selections.wishlistDirection', 'all');
+            return [{ key: 'all', label: '全部方向' }, ...enabledWishDirections()].map((item) => `<button type="button" class="direction-chip ${item.key === active ? 'active' : ''}" data-state-key="selections.wishlistDirection" data-state-value="${item.key}" aria-pressed="${item.key === active}">${item.label}</button>`).join('');
           })()}
         </div>
         <div class="section-head wish-rank-head"><div><h2>魔改呼声总榜</h2><p>排名越高，越优先安排魔改</p></div><button type="button" class="more" data-nav="wishlist-all">查看全部 ›</button></div>
-        <div class="wish-rank-list">${wishlistRankRows()}</div>
+        <div class="wish-rank-list">${filteredWishlistRows(2).length ? wishlistRankRows(filteredWishlistRows(2)) : '<div class="renewal-empty">该方向暂时没有上榜短剧，试试其他方向吧</div>'}</div>
         ${wishlistInsights()}
       </div>
       ${linkedTabbar('心愿榜单')}
@@ -1622,69 +1665,4 @@ window.ShortDramaAdminConfig = Object.freeze({
 
   window.addEventListener('shortdrama:statechange', (event) => {
     const key = String(event.detail?.key || '');
-    if (key === 'inputs.nomination_query' && app.dataset.screen === 'nominate') {
-      window.navigate('nominate', { replace: true });
-      return;
-    }
-    if (key === 'selections.remix_direction' && ['remix-direction', 'nominate-missing'].includes(app.dataset.screen)) {
-      const selected = String(event.detail?.value || '');
-      for (const option of app.querySelectorAll('.remix-direction-option')) {
-        const active = option.dataset.stateValue === selected;
-        option.setAttribute('aria-checked', String(active));
-        option.tabIndex = active ? 0 : -1;
-        option.classList.toggle('selected', active);
-      }
-      const display = app.querySelector('.direction-select-display');
-      if (display) display.firstChild.textContent = selected || '选择方向';
-      const select = app.querySelector('.missing-direction-select');
-      if (select) select.value = selected;
-    }
-    if (key === 'selections.renewal_prompt' && app.dataset.screen === 'renewal-center') {
-      window.navigate('renewal-center', { replace: true });
-    }
-  });
-
-  window.ShortDramaNominationScreens = Object.freeze({ ...routes });
-})();
-
-
-/* pages/account.js */
-(() => {
-  'use strict';
-
-  const { icon, backButton } = window.ShortDramaComponents;
-
-  function escapeHtml(value) {
-    return String(value ?? '')
-      .replaceAll('&', '&amp;')
-      .replaceAll('<', '&lt;')
-      .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;')
-      .replaceAll("'", '&#39;');
-  }
-
-  function accountHeader(title, backTarget) {
-    return `<header class="account-header">${backButton()}<h1>${title}</h1><span aria-hidden="true"></span></header>`
-      .replace('aria-label="返回"', `aria-label="返回" data-back="${backTarget}"`);
-  }
-
-  function profileBackdrop() {
-    const render = window.ShortDramaScreens?.profile;
-    return `<div class="account-backdrop" aria-hidden="true" inert>${render ? render() : ''}</div>`;
-  }
-
-  function settingsBody() {
-    const rows = [
-      ['绑定邀请码', '填写推广邀请码，绑定后用于归属关系', 'bind-invite'],
-      ['找回老账号', '通过身份信息或凭证找回历史账号', 'recover-account'],
-      ['清除缓存', '清理图片、视频、阅读缓存 0B', ''],
-      ['版本检测', '当前版本 AI短剧 v1.0.0', 'version-check'],
-    ];
-    return `<section class="account-settings-list">${rows.map(([title, copy, target]) => `<button class="account-setting-row" ${target ? `data-nav="${target}"` : 'data-state-key="selections.cacheStatus" data-state-value="0B"'}>
-      <span><strong>${title}</strong><small>${copy}</small></span><b aria-hidden="true">›</b>
-    </button>`).join('')}</section>`;
-  }
-
-  function identityScreen() {
-    return `<section class="screen identity-screen">
-      <div class="ident
+    if (key === 'inputs.nomina
