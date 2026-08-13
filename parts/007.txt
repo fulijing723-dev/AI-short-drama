@@ -1,4 +1,69 @@
-ity-card">
+tion_query' && app.dataset.screen === 'nominate') {
+      window.navigate('nominate', { replace: true });
+      return;
+    }
+    if (key === 'selections.remix_direction' && ['remix-direction', 'nominate-missing'].includes(app.dataset.screen)) {
+      const selected = String(event.detail?.value || '');
+      for (const option of app.querySelectorAll('.remix-direction-option')) {
+        const active = option.dataset.stateValue === selected;
+        option.setAttribute('aria-checked', String(active));
+        option.tabIndex = active ? 0 : -1;
+        option.classList.toggle('selected', active);
+      }
+      const display = app.querySelector('.direction-select-display');
+      if (display) display.firstChild.textContent = selected || '选择方向';
+      const select = app.querySelector('.missing-direction-select');
+      if (select) select.value = selected;
+    }
+    if (key === 'selections.renewal_prompt' && app.dataset.screen === 'renewal-center') {
+      window.navigate('renewal-center', { replace: true });
+    }
+  });
+
+  window.ShortDramaNominationScreens = Object.freeze({ ...routes });
+})();
+
+
+/* pages/account.js */
+(() => {
+  'use strict';
+
+  const { icon, backButton } = window.ShortDramaComponents;
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function accountHeader(title, backTarget) {
+    return `<header class="account-header">${backButton()}<h1>${title}</h1><span aria-hidden="true"></span></header>`
+      .replace('aria-label="返回"', `aria-label="返回" data-back="${backTarget}"`);
+  }
+
+  function profileBackdrop() {
+    const render = window.ShortDramaScreens?.profile;
+    return `<div class="account-backdrop" aria-hidden="true" inert>${render ? render() : ''}</div>`;
+  }
+
+  function settingsBody() {
+    const rows = [
+      ['绑定邀请码', '填写推广邀请码，绑定后用于归属关系', 'bind-invite'],
+      ['找回老账号', '通过身份信息或凭证找回历史账号', 'recover-account'],
+      ['清除缓存', '清理图片、视频、阅读缓存 0B', ''],
+      ['版本检测', '当前版本 AI短剧 v1.0.0', 'version-check'],
+    ];
+    return `<section class="account-settings-list">${rows.map(([title, copy, target]) => `<button class="account-setting-row" ${target ? `data-nav="${target}"` : 'data-state-key="selections.cacheStatus" data-state-value="0B"'}>
+      <span><strong>${title}</strong><small>${copy}</small></span><b aria-hidden="true">›</b>
+    </button>`).join('')}</section>`;
+  }
+
+  function identityScreen() {
+    return `<section class="screen identity-screen">
+      <div class="identity-card">
         <div class="account-brand">AI</div><h1>身份凭证</h1>
         <p>找回账号 / 换设备登录使用，请勿外泄给他人</p>
         <div class="credential-code">邀请码：<strong>AEIY6Q</strong></div>
@@ -591,8 +656,10 @@ ity-card">
     page('wishlist', '心愿榜单', '提名与催更', '查看魔改心愿排行、投票并发起新的短剧提名。', [
       req('wish-hero', '.wish-hero', '心愿榜介绍与提名', '用户可为希望魔改的短剧投票；排名越高，越优先进入魔改评估，团队将尽快安排处理。点击“我要提名”打开提名面板。'),
       req('wish-stats', '.wish-stats', '心愿数据与每日领票', '展示上榜短剧、累计票数、参与人数和个人可用票数。每位用户每日可主动领取一次，每次获得3张心愿票；领取后按钮切换为“今日已领取”，重复点击提示已领取。'),
-      req('wish-directions', '.wish-directions', '魔改方向筛选', '按都市、古装、重生、超能等方向筛选榜单。'),
+      req('wish-directions', '.wish-directions', '魔改方向筛选', '“全部方向”为前端固定聚合项；都市现代、国风古装等具体方向从后台“魔改方向字典”读取，并按后台排序和启停状态展示。切换方向后，下方榜单仅展示该方向的有效项目。'),
       req('wish-list', '.wish-rank-list', '心愿排行与投票', '展示排行、简介和票数；有效票数越高，短剧越优先进入魔改评估与处理队列。每次投票消耗1张心愿票，同一用户同一项目每日限投一次。未领取时引导先领取3张，票已用完时提示次日再领取。'),
+      req('wish-preference', '.wish-insight-card:not(.wish-rising-card)', '大家最喜欢哪种题材', '统计本周各魔改方向获得的有效心愿票，计算其占本周总有效票数的比例并按占比展示。取消、异常账号、重复和审核无效的票不计入，数据每10分钟刷新。'),
+      req('wish-rising', '.wish-rising-card', '本周飙升', '按“本周截至当前时间的有效票数－上周同期有效票数”计算方向增量并降序排列；增量相同时，本周总票数较高的方向优先。'),
     ]),
     page('nominate', '我要提名', '提名与催更', '从站内短剧中选择希望魔改的内容。', [
       req('nominate-tabs', '.nomination-tabs', '资源类型', '可在站内短剧和未收录资源两种提名方式之间切换。'),
@@ -719,7 +786,7 @@ ity-card">
     membership: '数据来源：会员周期、原价、活动价、加赠奖励、权益文案和自动续费规则由会员后台配置。加赠奖励支持金币、会员天数、票券或活动权益，并可配置数量、有效期、活动时段、叠加规则和启停；切换套餐后立即刷新，配置为空时明确显示暂无加赠。VIP专属特权默认展示五项摘要，点击“更多特权”在下方展开全部权益，再次点击收起。购买前以后台最新套餐与奖励配置生成订单快照。',
     'membership-records': '数据来源：展示当前账号的会员购买订单，按支付完成时间倒序。每条记录包含套餐、金额、支付状态、开通时间和到期时间；无记录显示空状态。仅展示真实订单，不允许用模拟数据填充正式页面。',
     'coin-records': '数据来源：展示当前账号金币充值及赠送记录，按到账时间倒序。记录需包含订单号、支付金额、获得金币、赠送金币和状态；退款或撤销应同步更新。无记录时展示空状态和返回充值入口。',
-    wishlist: '数据来源：心愿项目、魔改方向、有效票数、近七日增量、当日领票状态和个人剩余票数来自心愿后台。排序与处理规则：有效票数越高，短剧越优先进入魔改评估和处理队列；进入评估不代表必然制作，最终结果以内容、版权和制作评估为准。领票规则：每个账号按服务端自然日每天可领取一次，每次3张，未领取时余额为0；领取接口必须幂等，重复请求不重复发票。投票每次消耗1张，同一账号同一项目每日限投一次，剩余票仅当日有效并在次日00:00失效。领票、投票和余额扣减以服务端事务结果为准，前端分别反馈领取成功、今日已领取、投票成功、今日已投及票不足。',
+    wishlist: '数据来源：心愿项目、魔改方向、有效票数、当日领票状态和个人剩余票数来自心愿后台。“全部方向”为固定聚合项，其他方向读取后台方向字典并支持名称、排序和启停。大家最喜欢哪种题材按本周各方向有效票占本周总有效票的比例计算；本周飙升按本周截至当前时点减上周同期票数计算，增量相同按本周总票数排序。取消、异常账号、重复和审核无效票均排除，统计每10分钟刷新。排序与处理规则：有效票数越高，短剧越优先进入魔改评估和处理队列；进入评估不代表必然制作，最终结果以内容、版权和制作评估为准。领票规则：每个账号按服务端自然日每天可领取一次，每次3张，未领取时余额为0；领取接口必须幂等，重复请求不重复发票。投票每次消耗1张，同一账号同一项目每日限投一次，剩余票仅当日有效并在次日00:00失效。',
     nominate: '数据来源：可提名短剧来自后台已收录资源库，搜索匹配剧名、别名和题材标签。用户先选择短剧，再选择魔改方向；未选择内容不可提交。后台可配置每日提名次数、禁止提名名单和重复提名合并规则，提交成功后回到心愿榜。',
     'remix-direction': '数据来源：魔改方向由后台字典配置，可调整名称、顺序和启停状态。方向为必选，详细描述为补充信息；提交时校验短剧、方向、字数和重复内容。成功后生成待审核提名，审核通过才进入公开榜单。',
     'nominate-missing': '数据来源：用户填写未收录资源信息并选择本地封面。必填项为短剧名称和魔改方向，标签最多三个；后台需进行资源查重、版权与内容审核。提交成功进入待审核状态，不应直接出现在公开心愿榜。',
@@ -779,87 +846,4 @@ ity-card">
   const search = document.querySelector('#page-search');
   const title = document.querySelector('#requirement-title');
   const description = document.querySelector('#requirement-description');
-  const requirementsList = document.querySelector('#requirements-list');
-  const requirementCount = document.querySelector('#requirement-count');
-  const currentRoute = document.querySelector('#current-route');
-  const pageCount = document.querySelector('#page-count');
-  const pageById = new Map(model.pages.map((item) => [item.id, item]));
-  let activePageId = app.dataset.screen || 'home';
-
-  pageCount.textContent = String(model.pages.length);
-
-  function renderMenu(query = '') {
-    const normalized = query.trim().toLocaleLowerCase('zh-CN');
-    menu.innerHTML = '';
-    let visibleCount = 0;
-    for (const [groupId, groupLabel] of model.groups) {
-      const pages = model.pages.filter((item) => item.group === groupId && (!normalized || `${item.title} ${item.id}`.toLocaleLowerCase('zh-CN').includes(normalized)));
-      if (!pages.length) continue;
-      const heading = document.createElement('div');
-      heading.className = 'menu-group';
-      heading.innerHTML = `<span>${groupLabel}</span><b>${pages.length}页</b>`;
-      menu.append(heading);
-      for (const item of pages) {
-        visibleCount += 1;
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.dataset.pageId = item.id;
-        button.classList.toggle('active', item.id === activePageId);
-        button.setAttribute('aria-current', item.id === activePageId ? 'page' : 'false');
-        button.innerHTML = `<span>${String(model.pages.indexOf(item) + 1).padStart(2, '0')}</span>${item.title}`;
-        button.addEventListener('click', () => window.navigate(item.id, { replace: true }));
-        menu.append(button);
-      }
-    }
-    if (!visibleCount) menu.innerHTML = '<div class="empty-search">没有匹配的页面</div>';
-  }
-
-  function renderRequirements(page) {
-    title.textContent = page.title;
-    description.textContent = page.description;
-    currentRoute.textContent = page.id;
-    requirementCount.textContent = String(page.requirements.length);
-    requirementsList.innerHTML = '';
-    for (const [index, item] of page.requirements.entries()) {
-      const card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'requirement-card';
-      card.dataset.requirementId = item.id;
-      card.innerHTML = `<span class="requirement-number">${index + 1}</span><h3>${item.title}</h3><p>${item.copy}</p>`;
-      card.addEventListener('click', () => focusPreviewRequirement(item.id));
-      requirementsList.append(card);
-    }
-  }
-
-  function setPage(pageId) {
-    const page = pageById.get(pageId) || pageById.get('home');
-    activePageId = page.id;
-    renderMenu(search.value);
-    renderRequirements(page);
-    menu.querySelector(`[data-page-id="${CSS.escape(page.id)}"]`)?.scrollIntoView({ block: 'nearest' });
-    window.setTimeout(() => installAnnotations(page), 40);
-  }
-
-  function findScrollContainer() {
-    const candidates = ['.scroll-region', '.commerce-scroll', '.account-scroll', '.renewal-scroll', '.nomination-panel-scroll', '.collection-scroll'];
-    for (const selector of candidates) {
-      const element = app.querySelector(selector);
-      if (element && element.scrollHeight > element.clientHeight + 8) return element;
-    }
-    return null;
-  }
-
-  function installScrollTop() {
-    let button = canvas.querySelector('.review-scroll-top');
-    if (!button) {
-      button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'review-scroll-top';
-      button.setAttribute('aria-label', '返回页面顶部');
-      button.textContent = '↑';
-      canvas.append(button);
-    }
-    const scroller = findScrollContainer();
-    if (!scroller) { button.classList.remove('visible'); return; }
-    const update = () => {
-      const avail
+  const requirementsList = document.querySelector('#requ
