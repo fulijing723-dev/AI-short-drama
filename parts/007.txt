@@ -1,4 +1,42 @@
-服</h1><p><i></i>通常几分钟内回复</p></div></header>
+IY6Q</small></div>
+        <div class="credential-site">官网：https://ai-drama.com/</div>
+        <button class="account-primary" type="button" data-state-key="selections.identitySaved" data-state-value="saved">保存身份凭证</button>
+      </div>
+    </section>`;
+  }
+
+  function settingsScreen() {
+    return `<section class="screen account-screen"><div class="account-scroll">${accountHeader('设置', 'profile')}${settingsBody()}</div></section>`;
+  }
+
+  function recoverAccountScreen() {
+    return `<section class="screen account-screen"><div class="account-scroll recover-account-scroll">
+      ${accountHeader('找回老账号', 'settings')}
+      <section class="account-form-card"><h2>身份凭证截图</h2>
+        <label class="credential-upload"><input type="file" accept="image/*" aria-label="点击上传身份凭证截图"><span>＋</span><strong>点击上传身份凭证截图</strong></label>
+        <p>身份凭证可在「我的 → 身份凭证」中保存到相册。找回时上传该二维码截图，即可切换回原账号。</p>
+      </section>
+      <button class="account-primary account-bottom-action" type="button" data-account-action="recover">提交找回</button>
+    </div></section>`;
+  }
+
+  function versionCheckScreen() {
+    return `<section class="screen account-modal-screen">
+      <div class="account-backdrop settings-backdrop" aria-hidden="true" inert><div class="account-scroll">${accountHeader('设置', 'profile')}${settingsBody()}</div></div>
+      <div class="account-scrim"></div>
+      <section class="version-dialog" role="dialog" aria-modal="true" aria-labelledby="version-title">
+        <button class="account-close" data-back="settings" aria-label="关闭">×</button>
+        <h1 id="version-title">··◆ 版本检测 ◆··</h1><p>当前已是最新版本 AI短剧 v1.0.0</p>
+        <button class="account-primary" data-back="settings" data-modal-initial-focus>我知道了</button>
+      </section>
+    </section>`;
+  }
+
+  function customerServiceScreen() {
+    return `<section class="screen account-modal-screen">${profileBackdrop()}<div class="account-scrim"></div>
+      <section class="service-panel" role="dialog" aria-modal="true" aria-labelledby="service-title">
+        <div class="account-drag"></div><button class="account-close" data-back="profile" aria-label="关闭">×</button>
+        <header class="service-header"><div class="account-brand">AI</div><div><h1 id="service-title">在线客服</h1><p><i></i>通常几分钟内回复</p></div></header>
         <div class="service-empty">${icon('headset')}<p>有任何问题都可以留言，客服会尽快回复你～</p></div>
         <div class="service-compose"><button data-account-action="attachment" aria-label="添加图片或附件">＋</button><input data-state-key="inputs.serviceMessage" placeholder="请输入你的问题…" aria-label="请输入你的问题"><button data-account-action="send" aria-label="发送">➤</button></div>
       </section>
@@ -446,6 +484,7 @@
     page('home', '首页', '核心流程', '聚合搜索、精选短剧和底部主导航，帮助用户快速发现并进入内容详情。', [
       req('home-search', '.search-row', '搜索与快捷入口', '用户点击搜索框进入搜索页，也可进入排行榜或金币充值；搜索页保留筛选和历史状态。'),
       req('home-category-config', '.horizontal-scroll[aria-label="内容频道"]', '一级分类配置', '一级分类读取后台配置，支持名称、排序、启停状态和目标页面。前台仅展示已启用且处于生效期内的分类，并按运营顺序横向排列；默认选中首个有效分类。'),
+      req('home-banner-config', '.promo', '首页 Banner 配置', 'Banner的开关、文案、跳转目标和生效时间由后台配置。存在一条当前有效配置时显示并响应跳转；未配置、已停用、未到生效时间或已过期时，前端完全隐藏该模块且不保留空白。'),
       req('home-featured', '.featured', '精选原创主推荐', '展示运营精选短剧，点击“立即看”进入与该短剧一致的详情页。'),
       req('home-grid', '.poster-grid', '热门短剧卡片', '双列展示热度、付费类型和集数；点击卡片进入对应短剧详情。'),
       req('home-nav', '.tabbar', '全局主导航', '可切换首页、魔改短剧、心愿榜单、专题和我的，当前入口保持高亮。'),
@@ -454,7 +493,7 @@
       req('home-ads-head', '.isolated-ad-top', '首页顶部信息', '复用当前首页的AI品牌、搜索、排行榜和金币充值布局；本页面为独立评审状态，所有入口仅展示，不触发其他页面。'),
       req('home-ads-category', '.isolated-ad-categories', '内容分类', '与普通首页读取同一份后台一级分类配置，名称、顺序和启停状态保持一致；本独立广告评审页仅静态展示，不执行分类跳转。'),
       req('home-ads-grid', '.isolated-ad-section', '新增广告区域', '广告区域插入分类栏下方、绿色活动Banner上方，使用24个占位广告展示布局，每行6个、共4行。占位卡仅标识“广告位”和“广告名称”。'),
-      req('home-ads-banner', '.isolated-ad-banner', '首页活动 Banner', '沿用普通首页“回馈折扣即将停止”的绿色活动Banner，广告宫格位于它的正上方；Banner在当前独立页不响应点击。'),
+      req('home-ads-banner', '.isolated-ad-banner', '首页活动 Banner', '与普通首页读取同一条后台Banner配置；有有效配置时显示在广告宫格下方，无有效配置时隐藏且精选内容自动上移。本独立广告页仅展示Banner视觉，不响应跳转。'),
       req('home-ads-content', '.isolated-ad-content', '精选短剧内容', 'Banner下方保持精选原创、主推荐短剧和双列短剧卡片，与普通首页的信息层级一致；所有内容卡保持静态。'),
       req('home-ads-nav', '.isolated-static-tabbar', '静态底部导航', '保留首页、魔改短剧、心愿榜单、专题和我的五个导航项以及首页高亮样式，仅用于还原完整首页UI，不执行页面切换。'),
     ]),
@@ -547,9 +586,9 @@
     ]),
     page('wishlist', '心愿榜单', '提名与催更', '查看魔改心愿排行、投票并发起新的短剧提名。', [
       req('wish-hero', '.wish-hero', '心愿榜介绍与提名', '说明心愿榜用途，点击“我要提名”打开提名面板。'),
-      req('wish-stats', '.wish-stats', '心愿数据', '展示上榜短剧、累计票数、参与人数和个人可用票数。'),
+      req('wish-stats', '.wish-stats', '心愿数据与每日领票', '展示上榜短剧、累计票数、参与人数和个人可用票数。每位用户每日可主动领取一次，每次获得3张心愿票；领取后按钮切换为“今日已领取”，重复点击提示已领取。'),
       req('wish-directions', '.wish-directions', '魔改方向筛选', '按都市、古装、重生、超能等方向筛选榜单。'),
-      req('wish-list', '.wish-rank-list', '心愿排行与投票', '展示排行、简介和票数；用户可为未投项目投票。'),
+      req('wish-list', '.wish-rank-list', '心愿排行与投票', '展示排行、简介和票数；每次投票消耗1张心愿票，同一用户同一项目每日限投一次。未领取时引导先领取3张，票已用完时提示次日再领取。'),
     ]),
     page('nominate', '我要提名', '提名与催更', '从站内短剧中选择希望魔改的内容。', [
       req('nominate-tabs', '.nomination-tabs', '资源类型', '可在站内短剧和未收录资源两种提名方式之间切换。'),
@@ -658,8 +697,8 @@
   ];
 
   const pageRules = Object.freeze({
-    home: '数据来源：页面一级分类、运营主推、短剧卡片和排序权重均由后台配置；热度来自有效播放、点赞、评论、收藏等指标的加权结果。一级分类支持名称、排序、启停、生效时间和目标页面配置，前台只展示当前有效项并默认选中首个有效分类；配置为空时回退至“AI原创”。主推位支持配置生效时间、失效时间、目标短剧和跳转页面；下架或审核未通过内容不得展示。',
-    'home-ads': '页面用途：在普通首页绿色UI基础上独立评审广告配置状态，不与原首页、短剧详情、充值或其他页面建立入口和跳转。一级分类与普通首页共用后台配置，只同步名称、排序与启停结果。展示顺序为顶部信息、分类、24个广告占位符、绿色活动Banner、精选内容、静态底部导航。广告宫格固定每行6个、展示4行。',
+    home: '数据来源：页面一级分类、首页Banner、运营主推、短剧卡片和排序权重均由后台配置。Banner配置包含启停状态、主副文案、强调文案、跳转目标、开始时间和结束时间；前端仅渲染当前时间处于有效期且启用的配置，接口无数据或配置无效时不创建Banner节点，后续内容直接上移且不得出现空白占位。一级分类只展示当前有效项，配置为空时回退至“AI原创”；主推位支持配置生效时间、失效时间和目标短剧。',
+    'home-ads': '页面用途：在普通首页绿色UI基础上独立评审广告配置状态，不与其他页面建立入口。一级分类与普通首页共用后台配置；活动Banner也读取普通首页同一配置，有效时展示在24个广告占位符下方，无配置或失效时完全隐藏并由精选内容补位。广告宫格固定每行6个、展示4行。',
     search: '数据来源：搜索范围包含已上架短剧的剧名、别名、剧情关键词、题材和标签；热门搜索由后台按有效搜索量统计并支持运营配置。筛选规则：分类、主题、推荐条件按交集过滤，下方短剧随筛选即时更新；单组筛选保持一行并支持横向滑动。排序规则：筛选推荐内容按后台推荐权重和热度排序，关键词结果按相关度优先。搜索历史保存在当前账号，支持单条删除。',
     'search-results': '进入条件：仅在用户提交非空关键词、点击搜索历史或热门搜索词后进入。数据来源与搜索页一致，结果按剧名相关度、别名与标签匹配度、后台推荐权重和热度综合排序；分类、主题、推荐条件按交集过滤。无结果时不推荐无关内容，提供返回搜索页修改关键词或筛选条件的入口。',
     category: '数据来源：单件作品列表来自后台已上架且归属“单件作品”的内容。筛选规则：“最新”按后台上架时间倒序；“推荐”仅展示后台勾选“推荐短剧”的内容，并按运营排序权重、推荐生效时间排序；“全部”展示该频道全部有效内容，默认按综合权重和上架时间排序。切换筛选后应回到列表顶部并保留当前选择。',
@@ -676,7 +715,7 @@
     membership: '数据来源：会员周期、原价、活动价、加赠奖励、权益文案和自动续费规则由会员后台配置。加赠奖励支持金币、会员天数、票券或活动权益，并可配置数量、有效期、活动时段、叠加规则和启停；切换套餐后立即刷新，配置为空时明确显示暂无加赠。VIP专属特权默认展示五项摘要，点击“更多特权”在下方展开全部权益，再次点击收起。购买前以后台最新套餐与奖励配置生成订单快照。',
     'membership-records': '数据来源：展示当前账号的会员购买订单，按支付完成时间倒序。每条记录包含套餐、金额、支付状态、开通时间和到期时间；无记录显示空状态。仅展示真实订单，不允许用模拟数据填充正式页面。',
     'coin-records': '数据来源：展示当前账号金币充值及赠送记录，按到账时间倒序。记录需包含订单号、支付金额、获得金币、赠送金币和状态；退款或撤销应同步更新。无记录时展示空状态和返回充值入口。',
-    wishlist: '数据来源：心愿项目、魔改方向、有效票数、近七日增量和个人剩余票数来自心愿后台。榜单按有效票数、近七日增量、上榜时间排序；题材筛选读取后台方向标签。每个账号每天每个项目限投一次，投票后根据“成功、今日已投、票不足”三种结果显示提示。',
+    wishlist: '数据来源：心愿项目、魔改方向、有效票数、近七日增量、当日领票状态和个人剩余票数来自心愿后台。领票规则：每个账号按服务端自然日每天可领取一次，每次3张，未领取时余额为0；领取接口必须幂等，重复请求不重复发票。投票每次消耗1张，同一账号同一项目每日限投一次，剩余票仅当日有效并在次日00:00失效。领票、投票和余额扣减以服务端事务结果为准，前端分别反馈领取成功、今日已领取、投票成功、今日已投及票不足。',
     nominate: '数据来源：可提名短剧来自后台已收录资源库，搜索匹配剧名、别名和题材标签。用户先选择短剧，再选择魔改方向；未选择内容不可提交。后台可配置每日提名次数、禁止提名名单和重复提名合并规则，提交成功后回到心愿榜。',
     'remix-direction': '数据来源：魔改方向由后台字典配置，可调整名称、顺序和启停状态。方向为必选，详细描述为补充信息；提交时校验短剧、方向、字数和重复内容。成功后生成待审核提名，审核通过才进入公开榜单。',
     'nominate-missing': '数据来源：用户填写未收录资源信息并选择本地封面。必填项为短剧名称和魔改方向，标签最多三个；后台需进行资源查重、版权与内容审核。提交成功进入待审核状态，不应直接出现在公开心愿榜。',
@@ -832,59 +871,4 @@
     if (app.dataset.screen !== page.id) return;
     for (const marker of app.querySelectorAll('.review-marker')) marker.remove();
     for (const target of app.querySelectorAll('.review-annotated-target, .review-focus-target')) target.classList.remove('review-annotated-target', 'review-focus-target');
-    for (const [index, item] of page.requirements.entries()) {
-      const target = app.querySelector(item.selector);
-      if (!target) continue;
-      if (getComputedStyle(target).position === 'static') target.style.position = 'relative';
-      target.classList.add('review-annotated-target');
-      const marker = document.createElement('button');
-      marker.type = 'button';
-      marker.className = 'review-marker';
-      marker.dataset.requirementId = item.id;
-      marker.setAttribute('aria-label', `查看需求 ${index + 1}：${item.title}`);
-      marker.textContent = String(index + 1);
-      marker.addEventListener('click', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        selectRequirement(item.id, true);
-      });
-      target.append(marker);
-    }
-    installScrollTop();
-  }
-
-  function selectRequirement(requirementId, fromMarker = false) {
-    for (const card of requirementsList.querySelectorAll('.requirement-card')) card.classList.toggle('active', card.dataset.requirementId === requirementId);
-    requirementsList.querySelector(`[data-requirement-id="${CSS.escape(requirementId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    const marker = app.querySelector(`.review-marker[data-requirement-id="${CSS.escape(requirementId)}"]`);
-    if (marker) {
-      marker.classList.remove('review-pulse');
-      void marker.offsetWidth;
-      marker.classList.add('review-pulse');
-    }
-    if (!fromMarker) focusPreviewRequirement(requirementId, false);
-  }
-
-  function focusPreviewRequirement(requirementId, selectCard = true) {
-    if (selectCard) selectRequirement(requirementId, true);
-    const requirement = pageById.get(activePageId)?.requirements.find((item) => item.id === requirementId);
-    const target = requirement && app.querySelector(requirement.selector);
-    if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-    target.classList.remove('review-focus-target');
-    void target.offsetWidth;
-    target.classList.add('review-focus-target');
-    window.setTimeout(() => target.classList.remove('review-focus-target'), 1800);
-  }
-
-  search.addEventListener('input', () => renderMenu(search.value));
-  new MutationObserver(() => {
-    const route = app.dataset.screen || 'home';
-    if (route !== activePageId) setPage(route);
-    else window.setTimeout(() => installAnnotations(pageById.get(route)), 30);
-  }).observe(app, { attributes: true, attributeFilter: ['data-screen'], childList: true });
-  setPage(activePageId);
-})();
-</script>
-</body>
-</html>
+    for (const [i
