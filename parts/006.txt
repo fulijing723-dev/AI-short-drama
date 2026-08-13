@@ -1,4 +1,12 @@
-     throw new TypeError(`State field does not accept nested keys: ${topLevel}`);
+];
+  }
+
+  function writablePathParts(key) {
+    const parts = readPathParts(key);
+    const [topLevel] = parts;
+    if (!WRITABLE_STATE_KEYS.has(topLevel)) throw new TypeError(`State field is not writable: ${topLevel || key}`);
+    if ((topLevel === 'selectedTab' || topLevel === 'drawer') && parts.length !== 1) {
+      throw new TypeError(`State field does not accept nested keys: ${topLevel}`);
     }
     if ((topLevel === 'selections' || topLevel === 'inputs') && (parts.length < 1 || parts.length > 2)) {
       throw new TypeError(`State record path must contain at most one nested key: ${key}`);
@@ -1680,7 +1688,4 @@ window.ShortDramaAdminConfig = Object.freeze({
   function identityScreen() {
     return `<section class="screen identity-screen">
       <div class="identity-card">
-        <div class="account-brand">AI</div><h1>身份凭证</h1>
-        <p>找回账号 / 换设备登录使用，请勿外泄给他人</p>
-        <div class="credential-code">邀请码：<strong>AEIY6Q</strong></div>
-        <div class="credential-qr" role="img" aria-label="原身份凭证二维码资产未随工程提供"><span>身份凭证</span><small>AE
+        <div class="account-brand">AI</div><h1
