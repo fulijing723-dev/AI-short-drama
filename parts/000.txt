@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AI短剧 · UI评审沙盒 · 41页后台配置增强版</title>
+  <title>AI短剧 · UI评审沙盒 · 41页运营配置增强版</title>
   <style>/* noto-sans-sc-[4]-wght-normal */
 
 
@@ -873,6 +873,11 @@ svg { display: block; }
 .wish-stats div { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
 .wish-stats span { color: var(--muted); font-size: 12px; }
 .wish-stats strong { color: var(--accent); font-size: 18px; font-variant-numeric: tabular-nums; }
+.wish-ticket-card { position: relative; grid-column: 1 / -1; }
+.wish-ticket-card > div { min-width: 0; display: grid; gap: 2px; }
+.wish-ticket-card small { color: var(--muted); font-size: 9px; }
+.wish-ticket-claim { min-width: 82px; min-height: 34px; border: 1px solid rgba(182,255,57,.46); border-radius: 999px; padding: 0 12px; color: #091006; background: var(--accent); font-size: 11px; font-weight: 900; }
+.wish-ticket-claim.claimed { color: var(--muted); background: rgba(255,255,255,.05); border-color: var(--line); }
 .wish-directions { gap: 8px; margin-bottom: 13px; }
 .direction-chip { flex: 0 0 auto; min-height: 30px; border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px; color: var(--muted); background: var(--surface); font-size: 12px; white-space: nowrap; }
 .direction-chip.active { border-color: rgba(182, 255, 57, .48); color: var(--accent); background: rgba(182, 255, 57, .08); }
@@ -1716,15 +1721,4 @@ body[data-screen="member-unlock"] .status-bar { display: none; }
 :root {
   color-scheme: dark;
   --review-shell: #07100f;
-  --review-panel: #0b1614;
-  --review-panel-2: #101d1a;
-  --review-line: #20302d;
-  --review-text: #eef7f2;
-  --review-muted: #81918c;
-  --review-accent: #b6ff39;
-  --review-marker: #ff4d4f;
-}
-* { box-sizing: border-box; }
-html, body { margin: 0; min-width: 1120px; min-height: 100%; background: var(--review-shell); color: var(--review-text); font-family: "Noto Sans SC Variable", "Noto Sans SC", Inter, system-ui, sans-serif; }
-button, input { font: inherit; }
-.review-shell { min-height: 100vh; display: grid; grid-template-columns: 248px
+  --review-panel:
