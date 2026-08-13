@@ -879,7 +879,7 @@ window.ShortDramaAdminConfig = Object.freeze({
           ${img('poster-13.png', '', 'wish-hero-image')}
           <div class="wish-hero-copy">
             <h1>魔改愿望榜</h1>
-            <p>你想看什么？把想改的短剧、题材或小说提上来。</p>
+            <p>为你想看的短剧投票，排名越高，越优先进入魔改评估，我们会尽快安排处理。</p>
             <button type="button" class="wish-nominate" data-nav="nominate">我要提名</button>
           </div>
         </header>
@@ -895,7 +895,7 @@ window.ShortDramaAdminConfig = Object.freeze({
             return ['全部方向', '都市现代', '国风古装', '穿越重生', '异术超能', '魔改精选', '恐怖悬疑'].map((label) => `<button type="button" class="direction-chip ${label === active ? 'active' : ''}" data-state-key="selections.wishlistDirection" data-state-value="${label}" aria-pressed="${label === active}">${label}</button>`).join('');
           })()}
         </div>
-        <div class="section-head wish-rank-head"><div><h2>魔改呼声总榜</h2><p>每条每天一票</p></div><button type="button" class="more" data-nav="wishlist-all">查看全部 ›</button></div>
+        <div class="section-head wish-rank-head"><div><h2>魔改呼声总榜</h2><p>排名越高，越优先安排魔改</p></div><button type="button" class="more" data-nav="wishlist-all">查看全部 ›</button></div>
         <div class="wish-rank-list">${wishlistRankRows()}</div>
         ${wishlistInsights()}
       </div>
@@ -1687,5 +1687,4 @@ window.ShortDramaAdminConfig = Object.freeze({
 
   function identityScreen() {
     return `<section class="screen identity-screen">
-      <div class="identity-card">
-        <div class="account-brand">AI</div><h1
+      <div class="ident
