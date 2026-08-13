@@ -1,0 +1,1666 @@
+date = {
+      screen: state.screen,
+      selectedTab: state.selectedTab,
+      drawer: state.drawer,
+      selections: normalizeStringRecord(state.selections),
+      inputs: normalizeStringRecord(state.inputs),
+    };
+
+    if (topLevel === 'selectedTab') {
+      if (typeof value !== 'string') throw new TypeError('selectedTab must be a string');
+      candidate.selectedTab = value;
+    } else if (topLevel === 'drawer') {
+      if (typeof value !== 'string' && value !== null) throw new TypeError('drawer must be a string or null');
+      candidate.drawer = value;
+    } else if (nestedKey) {
+      if (typeof value !== 'string') throw new TypeError(`${topLevel}.${nestedKey} must be a string`);
+      candidate[topLevel][nestedKey] = value;
+    } else {
+      candidate[topLevel] = normalizeStringRecord(value);
+    }
+
+    const serialized = JSON.stringify(candidate);
+    window.localStorage.setItem(STORAGE_KEY, serialized);
+    state.screen = candidate.screen;
+    state.selectedTab = candidate.selectedTab;
+    state.drawer = candidate.drawer;
+    state.selections = candidate.selections;
+    state.inputs = candidate.inputs;
+    window.dispatchEvent(new CustomEvent('shortdrama:statechange', { detail: { key, value, state } }));
+    return value;
+  }
+
+  function registerScreen(id, render) {
+    if (typeof id !== 'string' || id.length === 0) throw new TypeError('Screen ID must be a non-empty string');
+    if (typeof render !== 'function') throw new TypeError(`Screen renderer must be a function: ${id}`);
+    registry.set(id, render);
+    return render;
+  }
+
+  function idSegment(value) {
+    return String(value || 'control').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'control';
+  }
+
+  function ensureStableNavigationId(control, screenId = state.screen) {
+    if (control.id) return control.id;
+    const target = control.dataset.nav || 'route';
+    const peers = [...app.querySelectorAll('[data-nav]')].filter((item) => item.dataset.nav === target);
+    const position = Math.max(0, peers.indexOf(control));
+    control.id = `shortdrama-nav-${idSegment(screenId)}-${idSegment(target)}-${position + 1}`;
+    return control.id;
+  }
+
+  function assignStableNavigationIds(screenId) {
+    for (const control of app.querySelectorAll('[data-nav]')) ensureStableNavigationId(control, screenId);
+  }
+
+  function focusableControls(container) {
+    return [...container.querySelectorAll(FOCUSABLE_SELECTOR)].filter((control) => {
+      if (control.closest('[inert], [aria-hidden="true"]')) return false;
+      const style = window.getComputedStyle(control);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    });
+  }
+
+  function focusDialog(dialog) {
+    const preferred = dialog.querySelector('[data-modal-initial-focus]') || focusableControls(dialog)[0];
+    const target = preferred || dialog;
+    if (!preferred && !dialog.hasAttribute('tabindex')) dialog.tabIndex = -1;
+    target.focus({ preventScroll: true });
+  }
+
+  function restoreStateControlFocus(screenId) {
+    if (!pendingStateFocus || pendingStateFocus.screenId !== screenId) return false;
+    const focusState = pendingStateFocus;
+    const match = [...app.querySelectorAll('[data-state-key]')].find((control) => (
+      control.dataset.stateKey === focusState.key
+      && (control.dataset.stateValue ?? control.value) === focusState.value
+    ));
+    pendingStateFocus = null;
+    if (!match) return false;
+    match.focus({ preventScroll: true });
+    if (
+      Number.isInteger(focusState.selectionStart)
+      && Number.isInteger(focusState.selectionEnd)
+      && typeof match.setSelectionRange === 'function'
+    ) {
+      match.setSelectionRange(focusState.selectionStart, focusState.selectionEnd, focusState.selectionDirection || 'none');
+    }
+    return true;
+  }
+
+  function restoreNavigationFocus() {
+    if (!pendingFocusRestoreId) return false;
+    const target = document.getElementById(pendingFocusRestoreId);
+    pendingFocusRestoreId = '';
+    if (!target || !app.contains(target)) return false;
+    target.focus({ preventScroll: true });
+    return true;
+  }
+
+  function finishRenderedAccessibility(screenId) {
+    assignStableNavigationIds(screenId);
+    const restoredStateFocus = restoreStateControlFocus(screenId);
+    const dialog = app.querySelector(MODAL_SELECTOR);
+    if (dialog) {
+      if (pendingNavigationOrigin?.targetScreen === screenId) activeModalOrigin = pendingNavigationOrigin;
+      pendingNavigationOrigin = null;
+      if (!restoredStateFocus) {
+        focusDialog(dialog);
+        queueMicrotask(() => {
+          if (app.contains(dialog) && !dialog.contains(document.activeElement)) focusDialog(dialog);
+        });
+      }
+      return;
+    }
+    pendingNavigationOrigin = null;
+    if (!restoredStateFocus) restoreNavigationFocus();
+  }
+
+  function prepareModalClose() {
+    if (activeModalOrigin?.triggerId) pendingFocusRestoreId = activeModalOrigin.triggerId;
+    activeModalOrigin = null;
+  }
+
+  function updateUrl(screenId, replace) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('screen', screenId);
+    const nextIndex = replace ? currentHistoryIndex : currentHistoryIndex + 1;
+    const historyState = {
+      ...(window.history.state && typeof window.history.state === 'object' ? window.history.state : {}),
+      screen: screenId,
+      [HISTORY_INDEX_KEY]: nextIndex,
+    };
+    window.history[replace ? 'replaceState' : 'pushState'](historyState, '', url);
+    currentHistoryIndex = nextIndex;
+  }
+
+  function renderScreen(screenId) {
+    const render = registry.get(screenId);
+    if (!render) throw new Error(`No renderer registered for screen: ${screenId}`);
+    state.screen = screenId;
+    persistState();
+    app.dataset.screen = screenId;
+    document.body.dataset.screen = screenId;
+    app.innerHTML = render(state);
+    const screenRoot = app.firstElementChild;
+    if (!screenRoot) throw new Error(`Screen renderer returned no root element: ${screenId}`);
+    screenRoot.dataset.screenId = screenId;
+    finishRenderedAccessibility(screenId);
+  }
+
+  function navigate(id, options = { replace: false }) {
+    const requestedId = typeof id === 'string' && id ? id : 'home';
+    const knownRoute = registry.has(requestedId);
+    const screenId = knownRoute ? requestedId : 'home';
+    const replace = Boolean(options?.replace) || !knownRoute;
+    updateUrl(screenId, replace);
+    renderScreen(screenId);
+    return screenId;
+  }
+
+  function back(fallbackId = 'home') {
+    if (currentHistoryIndex > 0) {
+      window.history.back();
+      return;
+    }
+    navigate(fallbackId, { replace: true });
+  }
+
+  function handleRouteFromHistory(event) {
+    const targetIndex = event.state?.[HISTORY_INDEX_KEY];
+    if (!isHistoryIndex(targetIndex)) {
+      navigate('home', { replace: true });
+      return;
+    }
+    const direction = Math.sign(targetIndex - currentHistoryIndex);
+    currentHistoryIndex = targetIndex;
+    const requestedId = new URLSearchParams(window.location.search).get('screen') || 'home';
+    if (!registry.has(requestedId)) {
+      navigate('home', { replace: true });
+      return;
+    }
+    if (direction < 0 && app.querySelector(MODAL_SELECTOR)) prepareModalClose();
+    renderScreen(requestedId);
+    window.dispatchEvent(new CustomEvent('shortdrama:historychange', {
+      detail: { direction, index: currentHistoryIndex, screen: requestedId },
+    }));
+  }
+
+  function delegatedControl(event) {
+    if (!(event.target instanceof Element)) return null;
+    const control = event.target.closest('[data-nav], [data-back], [data-state-key], [data-action]');
+    return control && control !== app && app.contains(control) ? control : null;
+  }
+
+  app.addEventListener('click', (event) => {
+    const control = delegatedControl(event);
+    if (!control) return;
+
+    if (control.dataset.nav) {
+      event.preventDefault();
+      if (control.dataset.beforeStateKey) {
+        setLocalState(control.dataset.beforeStateKey, control.dataset.beforeStateValue || '');
+      } else if (control.dataset.nav === 'detail') {
+        setLocalState('selections.selected_drama', 'village');
+      }
+      pendingNavigationOrigin = {
+        sourceScreen: state.screen,
+        targetScreen: control.dataset.nav,
+        triggerId: ensureStableNavigationId(control),
+      };
+      navigate(control.dataset.nav);
+      return;
+    }
+    if (Object.hasOwn(control.dataset, 'back')) {
+      event.preventDefault();
+      if (control.closest(MODAL_SELECTOR)) prepareModalClose();
+      back(control.dataset.back || 'home');
+      return;
+    }
+    if (control.dataset.stateKey) {
+      const value = control.dataset.stateValue ?? control.value;
+      pendingStateFocus = { screenId: state.screen, key: control.dataset.stateKey, value };
+      setLocalState(control.dataset.stateKey, value);
+      if (control.isConnected) pendingStateFocus = null;
+    }
+    if (control.dataset.action === 'drawer-open') {
+      setLocalState('drawer', control.dataset.drawer || control.dataset.stateValue || null);
+    } else if (control.dataset.action === 'drawer-close') {
+      setLocalState('drawer', null);
+    } else if (control.dataset.action === 'tab-select') {
+      setLocalState('selectedTab', control.dataset.tab || control.dataset.stateValue || '');
+    } else if (control.dataset.action === 'toast') {
+      showToast(control.dataset.message || '操作已完成');
+    }
+  });
+
+  app.addEventListener('input', (event) => {
+    const control = event.target instanceof Element ? event.target.closest('[data-state-key]') : null;
+    if (!control || control === app || !app.contains(control)) return;
+    const value = control.dataset.stateValue ?? control.value;
+    pendingStateFocus = {
+      screenId: state.screen,
+      key: control.dataset.stateKey,
+      value,
+      selectionStart: Number.isInteger(control.selectionStart) ? control.selectionStart : null,
+      selectionEnd: Number.isInteger(control.selectionEnd) ? control.selectionEnd : null,
+      selectionDirection: control.selectionDirection || 'none',
+    };
+    setLocalState(control.dataset.stateKey, value);
+    if (control.isConnected) pendingStateFocus = null;
+  });
+
+  app.addEventListener('keydown', (event) => {
+    const dialog = app.querySelector(MODAL_SELECTOR);
+    if (!dialog) return;
+    if (event.key === 'Escape') {
+      const closeControl = dialog.querySelector('[data-back]');
+      if (!closeControl) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      prepareModalClose();
+      navigate(closeControl.dataset.nav || closeControl.dataset.back || 'home', { replace: true });
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const controls = focusableControls(dialog);
+    if (controls.length === 0) {
+      event.preventDefault();
+      focusDialog(dialog);
+      return;
+    }
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    const active = document.activeElement;
+    if (!dialog.contains(active) || (event.shiftKey && active === first) || (!event.shiftKey && active === last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus({ preventScroll: true });
+    }
+  });
+
+  window.addEventListener('popstate', handleRouteFromHistory);
+  window.addEventListener('DOMContentLoaded', () => {
+    const requestedId = new URLSearchParams(window.location.search).get('screen') || 'home';
+    navigate(requestedId, { replace: true });
+  }, { once: true });
+
+  const api = {
+    state,
+    registerScreen,
+    navigate,
+    back,
+    setLocalState,
+    getLocalState,
+    getRegisteredScreenIds: () => [...registry.keys()],
+  };
+  window.ShortDramaApp = api;
+  window.registerScreen = registerScreen;
+  window.navigate = navigate;
+  window.back = back;
+  window.setLocalState = setLocalState;
+  window.getLocalState = getLocalState;
+  window.showToast = showToast;
+})();
+
+
+/* Admin-configurable product data */
+window.ShortDramaAdminConfig = Object.freeze({
+  firstLevelCategories: Object.freeze([
+    { key: 'original', label: 'AI原创', route: 'home', enabled: true, order: 1 },
+    { key: 'comic', label: 'AI漫剧', route: 'category-one', enabled: true, order: 2 },
+    { key: 'anime', label: '二次元', route: '', enabled: true, order: 3 },
+    { key: 'edge', label: '擦边短剧', route: 'category-two', enabled: true, order: 4 },
+    { key: 'live', label: '真人短剧', route: '', enabled: true, order: 5 },
+    { key: 'variety', label: '综艺', route: '', enabled: true, order: 6 },
+  ]),
+  coinPackages: Object.freeze([
+    { coins: '300', price: '30', bonus: '0', reward: '到账300金币', permissions: ['金币短剧解锁', '活动道具兑换'] },
+    { coins: '500', price: '50', bonus: '5', reward: '到账505金币', permissions: ['金币短剧解锁', '活动道具兑换'] },
+    { coins: '1000', price: '100', bonus: '20', reward: '到账1020金币', permissions: ['金币短剧解锁', '活动道具兑换', '催更票领取'] },
+    { coins: '2000', price: '200', bonus: '50', reward: '到账2050金币', permissions: ['金币短剧解锁', '活动道具兑换', '催更票领取'] },
+    { coins: '2980', price: '298', bonus: '100', reward: '到账3080金币', permissions: ['金币短剧解锁', '活动道具兑换', '催更票领取'] },
+  ]),
+  membershipPlans: Object.freeze([
+    { value: 'season', label: '季卡', price: '140', original: '188', gift: '赠送38金币', rewards: ['赠送38金币'], badge: '特惠' },
+    { value: 'month', label: '月卡', price: '50', original: '68', gift: '赠送月卡', rewards: ['赠送月卡'] },
+    { value: 'year', label: '年卡', price: '500', original: '998', gift: '赠送200金币', rewards: ['赠送200金币'], badge: '超值' },
+  ]),
+});
+
+/* screens.js */
+(() => {
+  'use strict';
+
+  const {
+    icon,
+    img,
+    topSearch,
+    promo,
+    tabbar,
+    posterCard,
+    backButton,
+    episodeGrid,
+    previewCard,
+    actionbar,
+  } = window.ShortDramaComponents;
+
+  const dramaCatalog = Object.freeze({
+    village: { title: '回村逍遥记', poster: 'poster-02.png', total: 10, paidFrom: 4, paidLabel: '金币', tags: ['AI原创'], discussion: '56' },
+    rebirth: { title: '重生之征服郭伯母第二季', poster: 'poster-01.png', total: 5, paidFrom: 6, paidLabel: '会员', tags: ['AI原创', '会员'], discussion: '38' },
+    doctor: { title: '我的炮友是妇科医生', poster: 'poster-04.png', total: 9, paidFrom: 4, paidLabel: '金币', tags: ['AI原创'], discussion: '42' },
+  });
+
+  function selectedDrama() {
+    return dramaCatalog[window.getLocalState('selections.selected_drama', 'village')] || dramaCatalog.village;
+  }
+
+  function homeScreen() {
+    return `<section class="screen home-screen">
+      <div class="scroll-region with-tabbar">
+        ${topSearch()}
+        <div class="horizontal-scroll" aria-label="内容频道" data-config-source="first-level-categories">
+          ${window.ShortDramaAdminConfig.firstLevelCategories.filter((item) => item.enabled).sort((a, b) => a.order - b.order).map((item, index) => `<span class="channel ${index === 0 ? 'active' : ''}" data-category-key="${item.key}">${item.label}</span>`).join('')}
+        </div>
+        ${promo()}
+        <div class="section-head"><h2>精选原创</h2><button type="button" class="more" data-nav="category">更多 ›</button></div>
+        <article class="featured">
+          <div class="featured-copy">
+            <h3>重生之征服郭伯母第二季</h3>
+            <div class="tag-row"><span class="tag accent">AI原创</span><span class="tag">全5集</span></div>
+            <p>精彩短剧，追更不停。</p>
+            <button class="watch-btn" data-nav="detail" data-before-state-key="selections.selected_drama" data-before-state-value="rebirth">立即看</button>
+          </div>
+          <div class="poster-frame">
+            ${img('poster-01.png', '重生之征服郭伯母第二季')}
+            <span class="poster-badge member">会员</span><span class="heat">44.0万热度</span>
+          </div>
+        </article>
+        <div class="poster-grid">
+          ${posterCard({ file: 'poster-02.png', title: '回村逍遥记', badge: '金币', heat: '150万热度', source: 'AI原创', episodes: '全10集', nav: 'detail', dramaKey: 'village' })}
+          ${posterCard({ file: 'poster-04.png', title: '我的炮友是妇科医生', badge: '金币', heat: '113万热度', source: 'AI原创', episodes: '全9集', nav: 'detail', dramaKey: 'doctor' })}
+        </div>
+      </div>
+      ${tabbar('首页')}
+    </section>`;
+  }
+
+  function categoryScreen() {
+    const activeFilter = window.getLocalState('selections.category_filter', '最新');
+    return `<section class="screen category-screen">
+      <div class="scroll-region with-tabbar">
+        ${topSearch()}
+        <nav class="segmented source-tabs" aria-label="内容来源筛选">
+          <button type="button" class="segment" data-nav="ai-remix">大神精选</button><button type="button" class="segment active" aria-current="page" disabled>单件作品</button><button type="button" class="segment" data-action="toast" data-message="影视魔改内容正在筹备中">影视魔改</button>
+        </nav>
+        <div class="sub-filters">${['最新', '推荐', '全部'].map((label) => `<button type="button" class="filter-chip ${label === activeFilter ? 'active' : ''}" data-state-key="selections.category_filter" data-state-value="${label}" aria-pressed="${label === activeFilter}">${label}</button>`).join('')}</div>
+        ${promo()}
+        <div class="poster-grid">
+          ${posterCard({ file: 'poster-05.png', title: '痴汉电车', badge: '金币', heat: '1544热度', source: '单件作品', episodes: '全1集' })}
+          ${posterCard({ file: 'poster-06.png', title: '小少妇', badge: '会员', badgeType: 'member', heat: '4068热度', source: '单件作品', episodes: '全1集' })}
+          ${posterCard({ file: 'poster-07.png', badge: '金币', source: '单件作品', episodes: '全1集' })}
+          ${posterCard({ file: 'poster-08.png', badge: '会员', badgeType: 'member', source: '单件作品', episodes: '全1集' })}
+        </div>
+      </div>
+      ${tabbar('魔改短剧')}
+    </section>`;
+  }
+
+  const rankings = [
+    ['poster-01.png', '重生之征服郭伯母第二季', 'AI原创', '杨过重生后，邂逅郭伯母', '总榜 No.1', '118万推荐'],
+    ['poster-02.png', '回村逍遥记', 'AI原创', '精彩短剧，追更不停。', '总榜 No.2', '117万推荐'],
+    ['poster-01.png', '重生之征服郭伯母第二季', 'AI原创', '精彩短剧，追更不停。', '总榜 No.3', '116万推荐'],
+    ['poster-09.png', '成为男友兄弟的母畜', '大神精选', '精彩短剧，追更不停。', '总榜 No.4', '115万推荐'],
+    ['poster-10.png', '荒岛美人劫', 'AI原创', '一个男人和一群名媛流落荒岛，一个个美貌的女神如何在现实面前成为需求求…', '总榜 No.5', '114万推荐'],
+    ['poster-04.png', '我的炮友是妇科医生', 'AI原创', '精彩短剧，追更不停。', '总榜 No.6', '113万推荐'],
+    ['poster-11.png', '龙女寄温记', '大神精选', '精彩短剧，追更不停。', '总榜 No.7', '112万推荐'],
+    ['poster-12.png', '金鳞岂是池中物', '大神精选', '精彩短剧，追更不停。', '总榜 No.8', '111万推荐'],
+    ['poster-13.png', '大辫打更人', '大神精选', '精彩短剧，追更不停。', '', '110万推荐'],
+  ];
+
+  function rankingScreen() {
+    const activeTab = window.getLocalState('selections.ranking_tab', '总榜');
+    return `<section class="screen ranking-screen">
+      <div class="scroll-region">
+        <header class="ranking-hero">
+          <div data-back="home">${backButton()}</div>
+          <h1 class="ranking-title">AI推荐榜</h1>
+          <p class="ranking-sub">基于AI观看/互动以及个人兴趣排行</p>
+        </header>
+        <div class="ranking-tabs">${['总榜', '魔改', '搜索', '收藏', '完结'].map((label) => `<button type="button" class="${label === activeTab ? 'active' : ''}" data-state-key="selections.ranking_tab" data-state-value="${label}" aria-pressed="${label === activeTab}">${label}</button>`).join('')}</div>
+        <div class="rank-list">
+          ${rankings.map((item, index) => `<article class="rank-item ${index < 3 ? 'top' : ''}">
+            <span class="rank-number">${index + 1}</span>
+            ${img(item[0], item[1], 'rank-cover')}
+            <div class="rank-copy">
+              <h3>${item[1]}</h3>
+              <div class="rank-source">${item[2]}</div>
+              <div class="rank-desc">${item[3]}</div>
+              <div class="rank-tags">${index > 0 ? '<span>小编推荐</span>' : ''}${item[4] ? `<span>${item[4]}</span>` : ''}</div>
+            </div>
+            <span class="recommend">♨ ${item[5]}</span>
+          </article>`).join('')}
+        </div>
+      </div>
+    </section>`;
+  }
+
+  function detailPage({ title, poster, tags, state, discussion, previews, total, paidFrom, paidLabel }) {
+    return `<section class="screen detail-screen">
+      <div class="scroll-region with-actionbar">
+        <header class="detail-hero">
+          <div class="detail-back" data-back="home">${backButton()}</div>
+          <div class="detail-summary">
+            ${img(poster, title, 'detail-cover')}
+            <div class="detail-copy">
+              <h1>${title}</h1>
+              <div class="tag-row">${tags.map((tag, index) => `<span class="tag ${index ? 'violet' : 'accent'}">${tag}</span>`).join('')}</div>
+              <div class="state">${state}</div>
+            </div>
+          </div>
+        </header>
+        <div class="section-head"><h2>热门评论</h2></div>
+        <div class="comment-preview horizontal-scroll">
+          ${previews.map((item) => previewCard(...item)).join('')}
+        </div>
+        <div class="content-tabs"><span class="content-tab active">剧集</span><span class="content-tab">讨论 ${discussion}</span></div>
+        ${episodeGrid(total, { current: 1, paidFrom, paidLabel, nav: 'player' })}
+      </div>
+      ${actionbar()}
+    </section>`;
+  }
+
+  function detailScreen() {
+    const drama = selectedDrama();
+    return detailPage({
+      title: drama.title, poster: drama.poster, tags: drama.tags, state: `已完结 · 全${drama.total}集`, discussion: drama.discussion, total: drama.total, paidFrom: drama.paidFrom, paidLabel: drama.paidLabel,
+      previews: [
+        ['avatar-01.png', '仙界的蜗牛', '谁想涨粉吗？我码才35岁 喜欢穿内丝 你想涨粉吗，进我直播下来的进…'],
+        ['avatar-02.png', '美丽的西装', '比我爸的多'],
+        ['avatar-03.png', '漂亮的四牛', '精彩，继续追更。'],
+      ],
+    });
+  }
+
+  function playerShell(drawer = '') {
+    const drama = selectedDrama();
+    const episode = Math.min(drama.total, Math.max(1, Number.parseInt(window.getLocalState('selections.player_episode', '1'), 10) || 1));
+    const playing = window.getLocalState('selections.player_playback', 'paused') === 'playing';
+    const liked = window.getLocalState('selections.player_liked', 'idle') === 'liked';
+    const saved = window.getLocalState('selections.player_saved', 'idle') === 'saved';
+    return `<section class="screen portrait-player-screen">
+      <div class="player-stage">
+        <button type="button" class="player-back" data-back="detail" aria-label="返回短剧详情">${icon('back')}</button>
+        <div class="player-video-frame">
+          ${img('player-embrace-frame.png', `${drama.title}第${episode}集播放画面`, 'player-video-image')}
+          <div class="player-brand"><span>AI</span><div><strong>AI魔改短剧</strong><small>边看边聊 · 发现好短剧</small></div></div>
+          <div class="player-watermark">AI短剧<br><small>ai-drama.com</small></div>
+          <button type="button" class="player-center-control ${playing ? 'playing' : ''}" data-state-key="selections.player_playback" data-state-value="${playing ? 'paused' : 'playing'}" aria-label="${playing ? '暂停' : '播放'}">${icon(playing ? 'pause' : 'play')}</button>
+          <p class="player-subtitle">小锋 你可算回来了</p>
+        </div>
+        <aside class="player-actions" aria-label="视频互动">
+          <button type="button" data-nav="routes" aria-label="切换线路">${icon('route')}<small>线路</small></button>
+          <button type="button" class="${liked ? 'selected' : ''}" data-state-key="selections.player_liked" data-state-value="${liked ? 'idle' : 'liked'}" aria-label="${liked ? '取消点赞' : '点赞'}">${icon('heart')}<small>${liked ? '2109' : '2108'}</small></button>
+          <button type="button" data-nav="comments" aria-label="查看56条评论">${icon('message')}<small>56</small></button>
+          <button type="button" class="${saved ? 'selected' : ''}" data-state-key="selections.player_saved" data-state-value="${saved ? 'idle' : 'saved'}" aria-label="${saved ? '取消收藏' : '收藏'}">${icon('star')}<small>${saved ? '4003' : '4002'}</small></button>
+          <button type="button" data-nav="share-promo" aria-label="分享推广">${icon('share')}<small>分享</small></button>
+        </aside>
+        <div class="player-meta"><h1>${drama.title}</h1><p>第${episode}集 <span>|</span> 共${drama.total}集</p></div>
+        <button type="button" class="player-series" data-nav="episodes"><span>${icon('play')}观看完整短剧·全${drama.total}集</span><b>›</b></button>
+        <div class="player-controls">
+          <button type="button" data-state-key="selections.player_playback" data-state-value="${playing ? 'paused' : 'playing'}" aria-label="${playing ? '暂停' : '播放'}">${icon(playing ? 'pause' : 'play')}</button>
+          <time>00:17</time><div class="player-progress" aria-label="播放进度 17秒，共2分59秒"><i></i><b></b></div><time>02:59</time>
+          <button type="button" class="player-speed" data-state-key="selections.player_speed" data-state-value="${window.getLocalState('selections.player_speed', '1X') === '1X' ? '1.5X' : window.getLocalState('selections.player_speed', '1X') === '1.5X' ? '2X' : '1X'}" aria-label="播放速度">${window.getLocalState('selections.player_speed', '1X')}</button>
+          <button type="button" data-state-key="selections.player_landscape" data-state-value="landscape" aria-label="全屏播放">${icon('fullscreen')}</button>
+        </div>
+        ${drawer}
+      </div>
+    </section>`;
+  }
+
+  function playerScreen() {
+    return playerShell();
+  }
+
+  function viewerBase(drawer) {
+    return `<section class="screen viewer-screen">
+      <div class="viewer">
+        ${img('hero-drama.png', '回村逍遥记播放画面', 'viewer-image')}
+        ${backButton('viewer-back')}
+        <div class="watermark">AI魔改短剧</div>
+        ${drawer}
+      </div>
+    </section>`;
+  }
+
+  function drawerTabs(active) {
+    return `<div class="drawer-tabs">
+      <span class="drawer-tab ${active === 'episodes' ? 'active' : ''}">剧集</span>
+      <span class="drawer-tab ${active === 'comments' ? 'active' : ''}">评论 56</span>
+      <button class="close-btn" data-nav="player" data-back="player" aria-label="关闭并返回播放器">×</button>
+    </div>`;
+  }
+
+  function episodesScreen() {
+    const drama = selectedDrama();
+    const episode = Math.min(drama.total, Math.max(1, Number.parseInt(window.getLocalState('selections.player_episode', '1'), 10) || 1));
+    const saved = window.getLocalState('selections.player_saved', 'idle') === 'saved';
+    return playerShell(`<button type="button" class="player-drawer-scrim" data-nav="player" data-back="player" aria-label="关闭选集"></button><section class="drawer episodes-drawer" role="dialog" aria-modal="true" aria-label="选择剧集">
+      <div class="drawer-handle"></div>
+      ${drawerTabs('episodes')}
+      ${episodeGrid(drama.total, { current: episode, paidFrom: drama.paidFrom, paidLabel: drama.paidLabel, nav: 'player' })}
+      <button class="drawer-collect ${saved ? 'selected' : ''}" data-state-key="selections.player_saved" data-state-value="${saved ? 'idle' : 'saved'}" aria-pressed="${saved}">${icon('star')}<span>${saved ? '已收藏' : '收藏'}</span></button>
+    </section>`);
+  }
+
+  const comments = [
+    ['avatar-01.png', '感动的解花缘', '怎么下载app', '今天 13:32', '0'],
+    ['avatar-02.png', '曾经的研丽', '山东济南的有吗', '今天 09:39', '1'],
+    ['avatar-03.png', '漂亮的四牛', '怎么看', '今天 01:47', '0'],
+    ['avatar-04.png', '大力的嫩娟', '谁能给我看看B', '今天 00:53', '1'],
+    ['avatar-01.png', '晨伊棉', '需要字幕。', '今天 00:52', '0'],
+    ['avatar-02.png', '温暖的百合', '有肌肉大腿吗', '今天 00:21', '0'],
+    ['avatar-03.png', '洁净的巨人', '穿着衣服奶子好大，脱了衣服感觉小了，什么毛病？', '今天 00:09', '1'],
+  ];
+
+  function commentsScreen() {
+    return playerShell(`<button type="button" class="player-drawer-scrim" data-nav="player" data-back="player" aria-label="关闭评论"></button><section class="drawer comments-drawer" role="dialog" aria-modal="true" aria-label="评论">
+      <div class="drawer-handle"></div>
+      ${drawerTabs('comments')}
+      <div class="comment-list">
+        ${comments.map(([avatar, author, body, time, likes]) => `<article class="comment-item">
+          ${img(avatar, '', 'avatar')}
+          <div>
+            <div class="comment-author">${author}</div>
+            <div class="comment-body">${body}</div>
+            <div class="comment-meta"><span>${time}</span><span>回复</span></div>
+          </div>
+          <div class="comment-like">${icon('heart')}<span>${likes}</span></div>
+        </article>`).join('')}
+      </div>
+      <label class="comment-input">
+        ${img('avatar-01.png', '幸福的人生', 'avatar')}
+        <input type="text" placeholder="写评论..." aria-label="写评论" data-state-key="inputs.player_comment" value="${window.getLocalState('inputs.player_comment', '')}">
+      </label>
+    </section>`);
+  }
+
+  const profileHistory = [
+    { file: 'poster-02.png', title: '回村逍遥记', badge: '金币', heat: '150万热度', source: 'AI原创', episodes: '全10集' },
+    { file: 'poster-14.png', title: '爱在愿尽天涯间', heat: '8512热度', source: '漫剧精选', episodes: '全100集' },
+    { file: 'poster-15.png', title: '偶像的秘密', heat: '10.0万热度', source: '大神精选', episodes: '全10集' },
+    { file: 'poster-16.png', title: '最新抖音爆密！风骚御姐少妇 线下与…大哥1v1影片…', source: '同样', episodes: '全1集' },
+    { file: 'poster-17.png', title: '神瞳觉醒', heat: '176万热度', source: '大神精选', episodes: '全10集' },
+  ];
+
+  function profileScreen() {
+    return `<section class="screen profile-screen">
+      <div class="scroll-region with-tabbar">
+        <header class="profile-head">
+          <button type="button" class="profile-avatar-button" data-nav="edit-profile" aria-label="编辑个人资料">${img('avatar-01.png', '幸福的人生', 'profile-avatar')}<span aria-hidden="true">${icon('edit')}</span></button>
+          <div class="profile-name"><h1>幸福的人生</h1><p>ID：12895167</p></div>
+          <div class="profile-actions">
+            <button class="round-icon" aria-label="身份凭证" data-nav="identity">${icon('ticket')}</button>
+            <button class="round-icon" aria-label="在线客服" data-nav="customer-service">${icon('headset')}</button>
+            <button class="round-icon" aria-label="设置" data-nav="settings">${icon('settings')}</button>
+          </div>
+        </header>
+        <div class="asset-grid">
+          <article class="asset-card"><span class="asset-label">我的金币</span><strong>0</strong><p>可用于影视剧集</p><button class="small-action" data-nav="coin-recharge">去购买</button></article>
+          <article class="asset-card"><span class="asset-label">我的会员</span><strong>—</strong><p>当前未开通会员</p><button class="small-action" data-nav="membership">去开通</button></article>
+        </div>
+        <div class="chase-cell" data-nav="renewal-center" role="link" tabindex="0">
+          <div class="chase-mark">${icon('bolt')}</div>
+          <div class="chase-copy"><strong>催更中心</strong><span>催更想看的，投票增加更</span></div>
+          <span class="chevron">›</span>
+        </div>
+        <div class="profile-tabs"><span class="active">历史</span><span data-nav="favorites" role="link" tabindex="0">收藏</span><span data-nav="likes" role="link" tabindex="0">点赞</span></div>
+        <div class="poster-grid profile-grid">${profileHistory.map(posterCard).join('')}</div>
+      </div>
+      ${tabbar('我的')}
+    </section>`;
+  }
+
+  const routes = {
+    home: homeScreen,
+    category: categoryScreen,
+    ranking: rankingScreen,
+    detail: detailScreen,
+    episodes: episodesScreen,
+    player: playerScreen,
+    comments: commentsScreen,
+    profile: profileScreen,
+  };
+
+  Object.entries(routes).forEach(([id, render]) => window.registerScreen(id, render));
+  window.addEventListener('shortdrama:statechange', (event) => {
+    const screen = document.querySelector('#app')?.dataset.screen;
+    const key = String(event.detail?.key || '');
+    if ((screen === 'ranking' && key === 'selections.ranking_tab') || (screen === 'category' && key === 'selections.category_filter')) {
+      window.navigate(screen, { replace: true });
+    }
+  });
+  window.ShortDramaPlayerShell = playerShell;
+  window.ShortDramaScreens = Object.freeze({ ...routes });
+})();
+
+
+/* pages/browse.js */
+(() => {
+  'use strict';
+
+  const {
+    icon,
+    img,
+    topSearch,
+    promo,
+    posterCard,
+    backButton,
+  } = window.ShortDramaComponents;
+
+  const navItems = [
+    ['home', 'home', '首页'],
+    ['ai-remix', 'wand', '魔改短剧'],
+    ['wishlist', 'heart', '心愿榜单'],
+    ['topics', 'grid', '专题'],
+    ['profile', 'user', '我的'],
+  ];
+
+  function linkedTopSearch() {
+    return topSearch()
+      .replace('<button class="round-icon"', '<button class="round-icon" data-nav="ranking"')
+      .replace('<button class="recharge"', '<button class="recharge" data-nav="coin-recharge"');
+  }
+
+  function linkedTabbar(active) {
+    return `<nav class="tabbar" aria-label="主要导航">
+      ${navItems.map(([route, iconName, label]) => `<button type="button" class="nav-item ${active === label ? 'active' : ''}" data-nav="${route}" ${active === label ? 'aria-current="page"' : ''}>${icon(iconName)}<span>${label}</span></button>`).join('')}
+    </nav>`;
+  }
+
+  function channelStrip(active, items) {
+    return `<nav class="horizontal-scroll channel-strip" aria-label="内容频道">
+      ${items.map(({ label, route }) => `<button type="button" class="channel channel-control ${label === active ? 'active' : ''}" ${route ? `data-nav="${route}"` : 'disabled aria-disabled="true"'} ${label === active ? 'aria-current="page"' : ''}>${label}</button>`).join('')}
+    </nav>`;
+  }
+
+  function sourceTabs(active) {
+    const items = [
+      { label: '大神精选', route: 'ai-remix' },
+      { label: '单件作品', route: 'category' },
+      { label: '影视魔改', message: '影视魔改内容正在筹备中' },
+    ];
+    return `<nav class="segmented source-tabs" aria-label="内容来源筛选">
+      ${items.map(({ label, route, message }) => `<button type="button" class="segment ${label === active ? 'active' : ''}" ${label === active ? 'aria-current="page" disabled' : route ? `data-nav="${route}"` : `data-action="toast" data-message="${message}"`}>${label}</button>`).join('')}
+    </nav>`;
+  }
+
+  function filters(defaultActive, labels, stateKey) {
+    const active = window.getLocalState(`selections.${stateKey}`, defaultActive);
+    return `<div class="sub-filters" aria-label="内容筛选">
+      ${labels.map((label) => `<button type="button" class="filter-chip ${label === active ? 'active' : ''}" data-state-key="selections.${stateKey}" data-state-value="${label}" ${label === active ? 'aria-pressed="true"' : 'aria-pressed="false"'}>${label}</button>`).join('')}
+    </div>`;
+  }
+
+  function linkedPoster(config, route = 'detail') {
+    const sourceCrop = config.file.startsWith('source-crops/browse-');
+    const accessibleLabel = [config.title, config.heat].filter(Boolean).join('，');
+    const visibleConfig = sourceCrop ? { ...config, heat: '' } : config;
+    return `<div class="browse-poster-link" role="link" tabindex="0" data-nav="${route}" aria-label="${accessibleLabel}">${posterCard(visibleConfig)}</div>`;
+  }
+
+  const browseChannels = window.ShortDramaAdminConfig.firstLevelCategories
+    .filter((item) => item.enabled)
+    .sort((a, b) => a.order - b.order)
+    .map(({ label, route }) => ({ label, route }));
+
+  function categoryOneScreen() {
+    return `<section class="screen browse-screen category-one-screen">
+      <div class="scroll-region with-tabbar">
+        ${linkedTopSearch()}
+        ${channelStrip('AI漫剧', browseChannels)}
+        ${filters('漫剧精选', ['漫剧精选', '恐怖怪谈', '恐怖故事'], 'categoryOneFilter')}
+        ${promo()}
+        <div class="poster-grid browse-grid">
+          ${linkedPoster({ file: 'source-crops/browse-category-one-love.png', title: '爱在咫尺天涯间', heat: '8512热度', source: '漫剧精选', episodes: '全100集' })}
+          ${linkedPoster({ file: 'source-crops/browse-category-one-cupcake.png', title: '报告！新夫人是春款小蛋糕', heat: '5732热度', source: '漫剧精选', episodes: '全90集' })}
+        </div>
+      </div>
+      ${linkedTabbar('首页')}
+    </section>`;
+  }
+
+  function categoryTwoScreen() {
+    return `<section class="screen browse-screen category-two-screen">
+      <div class="scroll-region with-tabbar">
+        ${linkedTopSearch()}
+        ${channelStrip('擦边短剧', browseChannels)}
+        ${filters('最新', ['最新', '推荐', '全部'], 'categoryTwoFilter')}
+        ${promo()}
+        <div class="poster-grid browse-grid">
+          ${linkedPoster({ file: 'source-crops/browse-category-two-haomen.png', title: '豪门之外', heat: '7380热度', source: '擦边短剧', episodes: '全1集' })}
+          ${linkedPoster({ file: 'source-crops/browse-category-two-pojie.png', title: '破界师', heat: '1.1万热度', source: '擦边短剧', episodes: '全1集' })}
+        </div>
+      </div>
+      ${linkedTabbar('首页')}
+    </section>`;
+  }
+
+  function remixScreen() {
+    return `<section class="screen browse-screen remix-screen">
+      <div class="scroll-region with-tabbar">
+        ${linkedTopSearch()}
+        ${sourceTabs('大神精选')}
+        ${filters('最新', ['最新', '推荐', '全部'], 'remixFilter')}
+        ${promo()}
+        <div class="poster-grid browse-grid">
+          ${linkedPoster({ file: 'source-crops/browse-remix-grapes.png', title: '葡萄成熟时', heat: '4.4万热度', source: '大神精选', episodes: '全2集' })}
+          ${linkedPoster({ file: 'source-crops/browse-remix-demon.png', title: '魔界赘婿', heat: '1.9万热度', source: '大神精选', episodes: '全1集' })}
+        </div>
+      </div>
+      ${linkedTabbar('魔改短剧')}
+    </section>`;
+  }
+
+  const wishlistRows = [
+    ['poster-13.png', '我一神医，怎么让女神都投怀送抱', '呼声很高，速更！', '83', 'wishlistVoteOne', '异术超能', '+5'],
+    ['poster-04.png', '灵泉空间护花小神农', '呼声很高，速更！', '74', 'wishlistVoteTwo', '异术超能', '+7'],
+    ['poster-02.png', '回村逍遥记', '乡村逆袭，期待全新魔改线', '68', 'wishlistVoteThree', '国风古装', '+6'],
+    ['poster-10.png', '废柴杂役', '小人物觉醒超能力逆天改命', '61', 'wishlistVoteFour', '异术超能', '+4'],
+    ['poster-07.png', '荒岛美人劫', '荒岛求生加入悬疑反转', '55', 'wishlistVoteFive', '都市现代', '+3'],
+  ];
+
+  function wishTicketsRemaining() {
+    const consumed = wishlistRows.slice(1).filter((row) => window.getLocalState(`selections.${row[4]}`, '') === 'voted').length;
+    return Math.max(0, 2 - consumed);
+  }
+
+  function wishVotePrompt() {
+    const state = window.getLocalState('selections.wish_vote_prompt', '');
+    const copy = {
+      already: '今天已经投过啦，明天再来',
+      success: '投票成功',
+      insufficient: '心愿票不足，明天再来领取吧',
+    }[state];
+    if (!copy) return '';
+    return `<div class="wish-prompt-layer">
+      <button type="button" class="wish-prompt-scrim" data-state-key="selections.wish_vote_prompt" data-state-value="" aria-label="关闭投票提示"></button>
+      <section class="wish-prompt" role="dialog" aria-modal="true" aria-labelledby="wish-prompt-title" aria-describedby="wish-prompt-copy">
+        <button type="button" class="prompt-close" data-state-key="selections.wish_vote_prompt" data-state-value="" aria-label="关闭投票提示">×</button>
+        <header><h2 id="wish-prompt-title">··◆ 提示 ◆··</h2></header>
+        <p id="wish-prompt-copy">${copy}</p>
+      </section>
+    </div>`;
+  }
+
+  function wishlistRankRows(rows = wishlistRows.slice(0, 2), compact = false) {
+    return rows.map(([file, title, description, votes, key, category, increase], index) => {
+      const rank = wishlistRows.indexOf(rows[index]) + 1;
+      const voted = rank === 1 || window.getLocalState(`selections.${key}`, '') === 'voted';
+      return `<article class="wish-rank-item ${compact ? 'compact' : ''}" data-nav="detail" role="link" tabindex="0">
+        <span class="wish-rank-number">${rank}</span>
+        ${img(file, title, 'wish-rank-cover')}
+        <div class="wish-rank-copy"><h3>${title}</h3><p>${description}</p><span>${category}</span><b>已完结</b></div>
+        <div class="wish-vote"><i>${increase}</i><strong>${votes}</strong><span>想看魔改</span><button type="button" data-action="wish-vote" data-wish-vote-key="${key}" aria-pressed="${voted}">${voted ? '已投' : '投一票'}</button></div>
+      </article>`;
+    }).join('');
+  }
+
+  function wishlistInsights() {
+    return `<section class="wish-insight-card">
+      <h2>大家最喜欢哪种题材</h2>
+      ${[['国风古装', 60], ['都市现代', 39], ['异术超能', 0]].map(([label, value]) => `<div class="wish-bar-row"><span>${label}</span><div><i style="width:${value}%"></i></div><strong>${value}%</strong></div>`).join('')}
+    </section>
+    <section class="wish-insight-card wish-rising-card">
+      <h2>本周飙升</h2>
+      ${[['国风古装', '+6'], ['都市现代', '+4'], ['异术超能', '+0']].map(([label, increase], index) => `<div class="wish-rising-row"><span>${index + 1}</span><strong>${label}</strong><i class="${increase === '+0' ? 'flat' : ''}">${increase}</i></div>`).join('')}
+    </section>
+    <p class="wish-refresh-note">数据每10分钟更新一次</p>`;
+  }
+
+  function wishlistScreen() {
+    return `<section class="screen browse-screen wishlist-screen">
+      <div class="scroll-region with-tabbar">
+        ${linkedTopSearch()}
+        <header class="wish-hero">
+          ${img('poster-13.png', '', 'wish-hero-image')}
+          <div class="wish-hero-copy">
+            <h1>魔改愿望榜</h1>
+            <p>你想看什么？把想改的短剧、题材或小说提上来。</p>
+            <button type="button" class="wish-nominate" data-nav="nominate">我要提名</button>
+          </div>
+        </header>
+        <div class="wish-stats" aria-label="心愿榜数据">
+          <div><span>上榜短剧</span><strong>60</strong></div>
+          <div><span>累计票数</span><strong>56385</strong></div>
+          <div><span>参与人数</span><strong>5.6万</strong></div>
+          <div><span>我的心愿票</span><strong>${wishTicketsRemaining()}</strong></div>
+        </div>
+        <div class="wish-directions horizontal-scroll" aria-label="魔改方向">
+          ${(() => {
+            const active = window.getLocalState('selections.wishlistDirection', '全部方向');
+            return ['全部方向', '都市现代', '国风古装', '穿越重生', '异术超能', '魔改精选', '恐怖悬疑'].map((label) => `<button type="button" class="direction-chip ${label === active ? 'active' : ''}" data-state-key="selections.wishlistDirection" data-state-value="${label}" aria-pressed="${label === active}">${label}</button>`).join('');
+          })()}
+        </div>
+        <div class="section-head wish-rank-head"><div><h2>魔改呼声总榜</h2><p>每条每天一票</p></div><button type="button" class="more" data-nav="wishlist-all">查看全部 ›</button></div>
+        <div class="wish-rank-list">${wishlistRankRows()}</div>
+        ${wishlistInsights()}
+      </div>
+      ${linkedTabbar('心愿榜单')}
+      ${wishVotePrompt()}
+    </section>`;
+  }
+
+  function wishlistAllScreen() {
+    return `<section class="screen browse-screen wishlist-all-screen">
+      <div class="scroll-region wishlist-all-scroll">
+        <header class="wishlist-all-head"><div data-back="wishlist">${backButton()}</div><h1>魔改呼声总榜</h1></header>
+        <div class="wish-rank-list">${wishlistRankRows(wishlistRows, true)}</div>
+      </div>
+      ${wishVotePrompt()}
+    </section>`;
+  }
+
+  const topicRows = [
+    ['poster-03.png', 'AI原创·大神精选', '50部剧集', '编辑部精选口碑热度双高的原创魔改佳作'],
+    ['poster-12.png', '国风古装·热血仙侠', '12部剧集', '古韵仙侠热血集结，一剑破苍穹'],
+    ['poster-01.png', '都市现代·情感大戏', '12部剧集', '都市情感命运碰撞，现代人的爱恨情仇'],
+    ['poster-02.png', '穿越重生·逆天改命', '12部剧集', '重生穿越打破定律，这一世掌控人生'],
+    ['poster-10.png', '异术超能·热血爽剧', '12部剧集', '透视都市绝境异能，爽点密集停不下来'],
+    ['poster-15.png', 'AI漫剧·脑洞大开', '12部剧集', 'AI漫剧场景展开，规则怪谈层层反转'],
+  ];
+
+  function topicsScreen() {
+    return `<section class="screen browse-screen topics-screen">
+      <div class="scroll-region with-tabbar">
+        <header class="topics-hero">
+          <div class="film-mark" aria-hidden="true">${icon('play')}</div>
+          <h1>短剧专题</h1>
+          <p>编辑部精选合集，一次看个够</p>
+        </header>
+        <div class="topic-list">
+          ${topicRows.map(([file, title, count, description]) => `<article class="topic-banner" data-nav="topic-collection" role="link" tabindex="0">
+            ${img(file, '', 'topic-image')}
+            <div class="topic-copy"><span>${count}</span><h2>${title}</h2><p>${description}</p></div>
+          </article>`).join('')}
+        </div>
+      </div>
+      ${linkedTabbar('专题')}
+    </section>`;
+  }
+
+  const collectionPosters = [
+    { file: 'poster-03.png', title: '少妇白洁', badge: '会员', badgeType: 'member', heat: '40.2万热度', source: '大神精选', episodes: '全9集' },
+    { file: 'poster-09.png', title: '堕落物语', badge: '金币', heat: '17.9万热度', source: '大神精选', episodes: '全7集' },
+    { file: 'poster-12.png', title: '金鳞岂是池中物', badge: '会员', badgeType: 'member', heat: '13.6万热度', source: '大神精选', episodes: '全6集' },
+    { file: 'poster-14.png', title: '寄宿日记', badge: '会员', badgeType: 'member', heat: '6.7万热度', source: '大神精选', episodes: '全2集' },
+    { file: 'poster-11.png', title: '穿过迷雾的早晨 第一季', badge: '金币', heat: '14.2万热度', source: '大神精选', episodes: '全8集' },
+    { file: 'poster-11.png', title: '穿过迷雾的早晨 第二季', badge: '金币', heat: '11.4万热度', source: '大神精选', episodes: '全9集' },
+  ];
+
+  function topicCollectionScreen() {
+    return `<section class="screen browse-screen topic-collection-screen">
+      <div class="scroll-region collection-scroll">
+        <header class="collection-head">
+          <div data-back="topics">${backButton()}</div>
+          <div><h1>AI原创·大神精选</h1><p>编辑部精选口碑热度双高的原创魔改佳作</p></div>
+        </header>
+        <div class="collection-grid">
+          ${collectionPosters.map((poster) => linkedPoster(poster, 'video-player')).join('')}
+        </div>
+      </div>
+    </section>`;
+  }
+
+  const routes = {
+    'category-one': categoryOneScreen,
+    'category-two': categoryTwoScreen,
+    'ai-remix': remixScreen,
+    wishlist: wishlistScreen,
+    'wishlist-all': wishlistAllScreen,
+    topics: topicsScreen,
+    'topic-collection': topicCollectionScreen,
+  };
+
+  Object.entries(routes).forEach(([id, render]) => window.registerScreen(id, render));
+
+  const app = document.querySelector('#app');
+  function enhanceExistingEntrypoints() {
+    if (app.dataset.screen !== 'home') return;
+    const targets = new Map(window.ShortDramaAdminConfig.firstLevelCategories.map((item) => [item.key, item.route]));
+    for (const channel of app.querySelectorAll('.channel')) {
+      const route = targets.get(channel.dataset.categoryKey);
+      if (!route) continue;
+      channel.dataset.nav = route;
+      channel.setAttribute('role', 'link');
+      channel.tabIndex = 0;
+    }
+  }
+
+  new MutationObserver(enhanceExistingEntrypoints).observe(app, { childList: true });
+  app.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+    const vote = event.target.closest('[data-wish-vote-key]');
+    if (!vote || !app.contains(vote)) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const key = vote.dataset.wishVoteKey;
+    const alreadyVoted = key === 'wishlistVoteOne' || window.getLocalState(`selections.${key}`, '') === 'voted';
+    if (alreadyVoted) {
+      window.setLocalState('selections.wish_vote_prompt', 'already');
+    } else if (wishTicketsRemaining() <= 0) {
+      window.setLocalState('selections.wish_vote_prompt', 'insufficient');
+    } else {
+      window.setLocalState(`selections.${key}`, 'voted');
+      window.setLocalState('selections.wish_vote_prompt', 'success');
+    }
+    window.navigate(app.dataset.screen, { replace: true });
+  }, true);
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !app.querySelector('.wish-prompt')) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.setLocalState('selections.wish_vote_prompt', '');
+    window.navigate(app.dataset.screen, { replace: true });
+  }, true);
+  app.addEventListener('keydown', (event) => {
+    if (!['Enter', ' '].includes(event.key)) return;
+    const control = event.target instanceof Element ? event.target.closest('[data-nav], [data-back]') : null;
+    if (!control || !app.contains(control)) return;
+    event.preventDefault();
+    control.click();
+  });
+  window.addEventListener('shortdrama:statechange', (event) => {
+    const key = String(event.detail?.key || '');
+    if (routes[app.dataset.screen] && key.startsWith('selections.')) {
+      window.navigate(app.dataset.screen, { replace: true });
+    }
+  });
+
+  window.ShortDramaBrowseScreens = Object.freeze({ ...routes });
+})();
+
+
+/* pages/commerce.js */
+(() => {
+  'use strict';
+
+  const { icon, img, backButton } = window.ShortDramaComponents;
+
+  const coinPackages = window.ShortDramaAdminConfig.coinPackages;
+  const membershipPlans = window.ShortDramaAdminConfig.membershipPlans;
+
+  function commerceHeader(active, recordRoute) {
+    return `<header class="commerce-header">
+      <div class="commerce-back" data-back="profile">${backButton()}</div>
+      <nav class="commerce-tabs" aria-label="充值页面">
+        <button type="button" data-nav="coin-recharge" ${active === 'coin' ? 'aria-current="page"' : ''} class="commerce-tab ${active === 'coin' ? 'active' : ''}">充值金币</button>
+        <button type="button" data-nav="membership" ${active === 'membership' ? 'aria-current="page"' : ''} class="commerce-tab ${active === 'membership' ? 'active' : ''}">购买会员</button>
+      </nav>
+      <button type="button" class="commerce-records" data-nav="${recordRoute}">充值记录</button>
+    </header>`;
+  }
+
+  function coinArtwork() {
+    return `<div class="coin-art" aria-hidden="true">
+      <span class="coin-stack coin-stack-one"></span>
+      <span class="coin-stack coin-stack-two"></span>
+      <span class="coin-stack coin-stack-three"></span>
+      <span class="coin-heart">♥</span>
+    </div>`;
+  }
+
+  function vipArtwork() {
+    return `<div class="vip-art" aria-hidden="true"><span>V</span></div>`;
+  }
+
+  function accountHero(kind) {
+    if (kind === 'coin') {
+      return `<section class="commerce-hero coin-hero">
+        <div class="commerce-user">${img('avatar-01.png', '幸福的人生', 'commerce-avatar')}<strong>幸福的人生</strong></div>
+        <div class="coin-balance"><strong>0 金币</strong><span>充值后可用于解锁剧情、加更和活动道具</span></div>
+        <button type="button" class="hero-detail" data-nav="coin-records">查看明细</button>
+        ${coinArtwork()}
+      </section>`;
+    }
+    return `<section class="commerce-hero membership-hero">
+      <div class="commerce-user">${img('avatar-01.png', '幸福的人生', 'commerce-avatar')}<div><strong>幸福的人生</strong><span>普通会员</span></div></div>
+      <div class="vip-status"><strong>尚未开通VIP</strong><span>开通即享全站特权</span></div>
+      ${vipArtwork()}
+    </section>`;
+  }
+
+  function coinPackageGrid() {
+    const selected = window.getLocalState('selections.coin_package', '300');
+    return `<div class="coin-packages" role="group" aria-label="金币充值档位">
+      ${coinPackages.map(({ coins, price, bonus }) => `<button type="button" class="coin-package ${selected === coins ? 'selected' : ''}" data-state-key="selections.coin_package" data-state-value="${coins}" aria-pressed="${selected === coins}">
+        <span class="package-coins"><i aria-hidden="true"></i>${coins}</span>
+        <strong><small>¥</small>${price}</strong>
+        <span class="package-bonus">加赠 ${bonus}</span>
+      </button>`).join('')}
+    </div>`;
+  }
+
+  function coinPackageBenefits(activePackage) {
+    return `<section class="config-benefit-panel coin-benefit-panel" aria-label="当前金币档位奖励与权限">
+      <div><small>充值奖励</small><strong>${activePackage.reward}</strong><span>含加赠 ${activePackage.bonus} 金币</span></div>
+      <div><small>可用权限</small><strong>${activePackage.permissions.join(' · ')}</strong><span>以支付时后台有效配置为准</span></div>
+    </section>`;
+  }
+
+  function coinBody() {
+    const selected = window.getLocalState('selections.coin_package', '300');
+    const activePackage = coinPackages.find((item) => item.coins === selected) || coinPackages[0];
+    return `<div class="commerce-scroll coin-commerce-scroll">
+      ${commerceHeader('coin', 'coin-records')}
+      ${accountHero('coin')}
+      ${coinPackageGrid()}
+      ${coinPackageBenefits(activePackage)}
+      <section class="commerce-notes coin-notes">
+        <h2>充值说明</h2>
+        <ol>
+          <li>金币仅限用于本平台内消费且与会员权益不互通。</li>
+          <li>若遇到充值未到账，请联系客服。</li>
+        </ol>
+      </section>
+    </div>
+    <footer class="coin-paybar"><button type="button" class="commerce-pay-button" data-action="toast" data-message="已确认 ${activePackage.coins} 金币档位；本地原型不会发起真实支付">支付 ¥${activePackage.price} 充值金币</button></footer>`;
+  }
+
+  const perks = [
+    ['∞', '无限片源', '看到你先看'],
+    ['AD', '免广告', '看剧无广告'],
+    ['ϟ', '极速播放', '播放不卡顿'],
+    ['HD', '1080P', '超清晰画质'],
+    ['⌘', '更多特权', '查看更多'],
+  ];
+
+  function vipPerks() {
+    const expanded = window.getLocalState('selections.vip_perks_expanded', '') === 'expanded';
+    const extraPerks = [
+      ['VIP', 'VIP短剧免费'],
+      ['签', '免费修改签名'],
+      ['名', '免费修改昵称'],
+      ['像', '免费修改头像'],
+    ];
+    return `<section class="vip-perks" aria-label="VIP专属特权">
+      <h2><span aria-hidden="true">◖</span> VIP专属特权 <span aria-hidden="true">◗</span></h2>
+      <div class="vip-perk-grid">${perks.map(([mark, title, subtitle], index) => index === perks.length - 1
+        ? `<button type="button" class="vip-perk vip-perk-toggle" data-state-key="selections.vip_perks_expanded" data-state-value="${expanded ? '' : 'expanded'}" aria-expanded="${expanded}" aria-controls="vip-more-panel"><span class="perk-mark">${mark}</span><strong>${title}</strong><small>${expanded ? '点击收起' : '点击展开'}</small></button>`
+        : `<article class="vip-perk"><span class="perk-mark">${mark}</span><strong>${title}</strong><small>${subtitle}</small></article>`).join('')}</div>
+      ${expanded ? `<section class="vip-more-panel" id="vip-more-panel" aria-label="全部会员特权"><h3>当前会员全部特权</h3><div class="vip-more-grid">${extraPerks.map(([mark, title]) => `<article class="vip-more-item"><span class="perk-mark">${mark}</span><span>${title}</span></article>`).join('')}</div></section>` : ''}
+    </section>`;
+  }
+
+  function membershipPlanGrid() {
+    const selected = window.getLocalState('selections.membership_plan', 'season');
+    return `<div class="membership-plans" role="group" aria-label="会员套餐">
+      ${membershipPlans.map((plan) => `<button type="button" class="membership-plan ${selected === plan.value ? 'selected' : ''}" data-state-key="selections.membership_plan" data-state-value="${plan.value}" aria-pressed="${selected === plan.value}">
+        ${plan.badge ? `<span class="plan-badge">${plan.badge}</span>` : ''}
+        <span class="plan-name">${plan.label}</span>
+        <strong><small>¥</small>${plan.price}</strong>
+        <del>¥${plan.original}</del>
+        <span class="plan-gift">${plan.gift}</span>
+      </button>`).join('')}
+    </div>`;
+  }
+
+  function membershipPlanBenefits(activePlan) {
+    const rewards = Array.isArray(activePlan.rewards) && activePlan.rewards.length ? activePlan.rewards : ['当前套餐暂无加赠'];
+    return `<section class="config-benefit-panel member-bonus-panel" aria-label="当前会员套餐加赠奖励">
+      <div><small>当前套餐加赠</small><strong>${rewards.join(' · ')}</strong><span>奖励内容及活动有效期由会员后台配置</span></div>
+    </section>`;
+  }
+
+  function membershipBody() {
+    const selected = window.getLocalState('selections.membership_plan', 'season');
+    const activePlan = membershipPlans.find((plan) => plan.value === selected) || membershipPlans[0];
+    return `<div class="commerce-scroll membership-commerce-scroll">
+      ${commerceHeader('membership', 'membership-records')}
+      ${accountHero('membership')}
+      ${vipPerks()}
+      ${membershipPlanGrid()}
+      ${membershipPlanBenefits(activePlan)}
+      <p class="membership-rule">季卡会员可观看会员专区所有视频，金币解锁剧集需另行购买</p>
+      <button type="button" class="commerce-pay-button member-pay-button" data-action="toast" data-message="已选择${activePlan.label} ¥${activePlan.price}；本地原型不会发起真实支付">开通会员</button>
+      <div class="payment-trust"><span>∞ 已服务 81,325+ 用户</span><span>${icon('ticket')} 安全保障</span></div>
+      <section class="commerce-notes membership-notes">
+        <h2>温馨提示</h2>
+        <ol>
+          <li>付款：用户确认购买并付款后记入账户；</li>
+          <li>取消续订：自动续费服务，如需取消续订，用户可在当前订阅周期到期前 24 小时以前随时手动在系统订阅设置管理中关闭自动续费功能，取消后不再扣费；</li>
+          <li>自动续费：账户会在到期前 24 小时内扣费，到期成功后顺延一个订阅周期。</li>
+        </ol>
+      </section>
+    </div>`;
+  }
+
+  function recordDialog(type) {
+    const isCoin = type === 'coin';
+    const title = isCoin ? '金币充值记录' : '会员充值记录';
+    const subtitle = isCoin ? '金币用于解锁剧集 · 与会员系统不互通' : 'VIP专属特权 · 无限片源 · 免广告';
+    const fallback = isCoin ? 'coin-recharge' : 'membership';
+    return `<div class="record-scrim" aria-hidden="true"></div>
+      <section class="record-drawer" role="dialog" aria-modal="true" aria-labelledby="record-title">
+        <div class="record-handle" aria-hidden="true"></div>
+        <header class="record-head">
+          <div><h1 id="record-title">${title}</h1><p>${subtitle}</p></div>
+          <button type="button" class="record-close" data-modal-initial-focus data-back="${fallback}" aria-label="关闭${title}">×</button>
+        </header>
+        <article class="record-status ${isCoin ? 'coin-record-status' : ''}">
+          <div><small>${isCoin ? '当前金币余额' : '当前会员状态'}</small><strong>${isCoin ? '0 金币' : '尚未开通 VIP'}</strong>${isCoin ? '' : '<span>开通即享全站特权</span>'}</div>
+          <span class="record-pill">${isCoin ? '<i aria-hidden="true"></i> 金币' : '● 未开通'}</span>
+          ${isCoin ? '<p>金币用于解锁剧集，与会员系统不互通</p>' : ''}
+        </article>
+        <div class="record-list-head"><strong>充值明细 <span>共0条</span></strong></div>
+        <div class="record-empty"><span aria-hidden="true">⌁</span><p>暂无充值记录</p></div>
+        <p class="record-footnote">仅展示近一年${isCoin ? '金币' : '会员'}充值记录，如有疑问请联系客服处理</p>
+      </section>`;
+  }
+
+  function commerceScreen(kind, dialogType = '') {
+    const baseBody = kind === 'coin' ? coinBody() : membershipBody();
+    return `<section class="screen commerce-screen ${kind}-commerce-screen ${dialogType ? 'record-screen' : ''}">
+      <div class="commerce-base-layer" ${dialogType ? 'inert aria-hidden="true"' : ''}>${baseBody}</div>
+      ${dialogType ? recordDialog(dialogType) : ''}
+    </section>`;
+  }
+
+  const routes = {
+    'coin-recharge': () => commerceScreen('coin'),
+    membership: () => commerceScreen('membership'),
+    'membership-records': () => commerceScreen('membership', 'membership'),
+    'coin-records': () => commerceScreen('coin', 'coin'),
+  };
+
+  Object.entries(routes).forEach(([id, render]) => window.registerScreen(id, render));
+
+  const app = document.querySelector('#app');
+  function enhanceCommerceEntrypoints() {
+    const screen = app.dataset.screen;
+    if (['home', 'category'].includes(screen)) {
+      const recharge = app.querySelector('.recharge');
+      if (recharge) recharge.dataset.nav = 'coin-recharge';
+    }
+    if (['profile', 'favorites', 'likes'].includes(screen)) {
+      const assetActions = app.querySelectorAll('.asset-card .small-action');
+      if (assetActions[0]) assetActions[0].dataset.nav = 'coin-recharge';
+      if (assetActions[1]) assetActions[1].dataset.nav = 'membership';
+    }
+  }
+
+  new MutationObserver(enhanceCommerceEntrypoints).observe(app, { childList: true });
+  window.addEventListener('shortdrama:statechange', (event) => {
+    const key = String(event.detail?.key || '');
+    if (routes[app.dataset.screen] && ['selections.coin_package', 'selections.membership_plan', 'selections.vip_perks_expanded'].includes(key)) {
+      window.navigate(app.dataset.screen, { replace: true });
+    }
+  });
+
+  window.ShortDramaCommerceScreens = Object.freeze({ ...routes });
+})();
+
+
+/* pages/nomination.js */
+(() => {
+  'use strict';
+
+  const { icon, img, backButton } = window.ShortDramaComponents;
+  const app = document.querySelector('#app');
+
+  const dramas = [
+    ['poster-13.png', '重生之征服韩伯母 第一季', 'AI原创', '杨过重生后，迷恋韩伯母'],
+    ['poster-11.png', '镜像少年与寡妇组合欢', '大神精选', '精彩短剧，追更不停。'],
+    ['poster-09.png', '神瞳觉醒', '大神精选', '精彩短剧，追更不停。'],
+    ['poster-02.png', '回村逍遥记', 'AI原创', '精彩短剧，追更不停。'],
+    ['poster-07.png', '荒岛美人劫', 'AI原创', '一个男人和一群名媛流落荒岛，一个个高傲的女神如何在现实面前成为跪求交媚的。'],
+    ['poster-16.png', '健身房的故事', '擦边短剧', '精彩短剧，追更不停。'],
+  ];
+
+  const directions = ['都市现代', '国风古装', '穿越重生', '异术超能', '魔改精选', '恐怖漫剧'];
+  const missingTags = ['魔改', '擦边', '爽文', '复仇', '穿越', '禁忌', '逆袭', '甜宠', '多女主', '古装', '都市'];
+  const renewalDramas = [
+    ['poster-13.png', '重生之征服韩伯母第二季', '5824'],
+    ['poster-02.png', '回村逍遥记', '2586'],
+    ['poster-10.png', '废柴杂役', '2468'],
+    ['poster-07.png', '荒岛美人劫', '2263'],
+  ];
+
+  function renewedRows() {
+    return renewalDramas.filter((_, index) => window.getLocalState(`selections.renewal_vote_${index}`, '') === 'voted');
+  }
+
+  function renewalTicketCount() {
+    const signed = window.getLocalState('selections.renewal_checkin', '') === 'signed';
+    return Math.max(0, (signed ? 4 : 3) - renewedRows().length);
+  }
+
+  function renewalPrompt() {
+    const state = window.getLocalState('selections.renewal_prompt', '');
+    const copy = {
+      success: '催更成功 +1',
+      already: '今天已经催更过了',
+      insufficient: '催更票不足，先去签到领取吧',
+    }[state];
+    if (!copy) return '';
+    return `<div class="renewal-prompt-layer">
+      <button type="button" class="renewal-prompt-scrim" data-state-key="selections.renewal_prompt" data-state-value="" aria-label="关闭催更提示"></button>
+      <section class="renewal-prompt" role="dialog" aria-modal="true" aria-labelledby="renewal-prompt-title" aria-describedby="renewal-prompt-copy">
+        <button type="button" class="prompt-close" data-state-key="selections.renewal_prompt" data-state-value="" aria-label="关闭催更提示">×</button>
+        <header><h2 id="renewal-prompt-title">··◆ 提示 ◆··</h2></header>
+        <p id="renewal-prompt-copy">${copy}</p>
+      </section>
+    </div>`;
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function wishlistBackdrop() {
+    const renderWishlist = window.ShortDramaBrowseScreens?.wishlist;
+    return typeof renderWishlist === 'function' ? renderWishlist() : '<section class="screen"></section>';
+  }
+
+  function nominationTabs(active) {
+    return `<nav class="nomination-tabs" aria-label="提名资源类型">
+      <button type="button" class="nomination-tab ${active === 'site' ? 'active' : ''}" data-nav="nominate" ${active === 'site' ? 'aria-current="page"' : ''}>选择本站短剧</button>
+      <button type="button" class="nomination-tab ${active === 'missing' ? 'active' : ''}" data-nav="nominate-missing" ${active === 'missing' ? 'aria-current="page"' : ''}>提名本站未收录资源</button>
+    </nav>`;
+  }
+
+  function nominationPanel({ active, closeTarget, body, bodyClass = '', directClose = false }) {
+    const closeAttributes = directClose
+      ? 'data-nav="wishlist" data-back="wishlist"'
+      : `data-back="${closeTarget}"`;
+    return `<section class="screen nomination-screen">
+      <div class="nomination-base-layer" inert aria-hidden="true">${wishlistBackdrop()}</div>
+      <div class="nomination-scrim" aria-hidden="true"></div>
+      <section class="nomination-panel" role="dialog" aria-modal="true" aria-labelledby="nomination-title" aria-describedby="nomination-subtitle">
+        <header class="nomination-header">
+          <div><h1 id="nomination-title">我要提名魔改</h1><p id="nomination-subtitle">提交你最想让AI魔改的剧与方向</p></div>
+          <button type="button" class="nomination-close" data-modal-initial-focus ${closeAttributes} aria-label="关闭我要提名魔改">×</button>
+        </header>
+        ${nominationTabs(active)}
+        <div class="nomination-panel-scroll ${bodyClass}">${body}</div>
+        <footer class="nomination-submit-bar"><button type="button" class="nomination-submit" data-nomination-submit>提交提名</button></footer>
+      </section>
+    </section>`;
+  }
+
+  function dramaRow([file, title, source, description]) {
+    return `<button type="button" class="nomination-drama" data-nav="remix-direction" data-before-state-key="selections.nomination_drama" data-before-state-value="${escapeHtml(title)}" aria-label="${escapeHtml(title)}，${escapeHtml(source)}，${escapeHtml(description)}">
+      ${img(file, '', 'nomination-drama-cover')}
+      <span class="nomination-drama-copy"><strong>${escapeHtml(title)}</strong><small>${escapeHtml(source)}</small><span>${escapeHtml(description)}</span></span>
+    </button>`;
+  }
+
+  function nominateScreen() {
+    const query = window.getLocalState('inputs.nomination_query', '');
+    const normalizedQuery = query.trim().toLocaleLowerCase('zh-CN');
+    const visibleDramas = normalizedQuery
+      ? dramas.filter((item) => item.slice(1).join(' ').toLocaleLowerCase('zh-CN').includes(normalizedQuery))
+      : dramas;
+    const body = `<label class="nomination-field-label" for="nomination-search">选择短剧</label>
+      <label class="nomination-search-field">
+        <input id="nomination-search" type="search" aria-label="搜索本站短剧" placeholder="搜索剧名/题材…" value="${escapeHtml(query)}" data-state-key="inputs.nomination_query">
+        ${icon('search')}
+      </label>
+      <div class="nomination-drama-list">${visibleDramas.map(dramaRow).join('')}</div>`;
+    return nominationPanel({ active: 'site', closeTarget: 'wishlist', body, bodyClass: 'nominate-list-scroll' });
+  }
+
+  function remixDirectionOptions(selected) {
+    const tabStop = directions.includes(selected) ? selected : directions[0];
+    return `<div class="remix-direction-options" role="radiogroup" aria-label="魔改方向">
+      ${directions.map((direction) => `<button type="button" role="radio" tabindex="${tabStop === direction ? '0' : '-1'}" class="remix-direction-option ${selected === direction ? 'selected' : ''}" aria-checked="${selected === direction}" data-state-key="selections.remix_direction" data-state-value="${direction}">${direction}</button>`).join('')}
+    </div>`;
+  }
+
+  function remixDirectionScreen() {
+    const selected = window.getLocalState('selections.remix_direction', '');
+    const selectedTitle = window.getLocalState('selections.nomination_drama', dramas[0][1]);
+    const selectedDrama = dramas.find((item) => item[1] === selectedTitle) || dramas[0];
+    const body = `<button type="button" class="selected-drama-card" data-nav="nominate" aria-label="重新选择短剧：${escapeHtml(selectedDrama[1])}">
+        ${img(selectedDrama[0], '', 'selected-drama-cover')}
+        <span class="nomination-drama-copy"><strong>${escapeHtml(selectedDrama[1])}</strong><small>${escapeHtml(selectedDrama[2])}</small><span>${escapeHtml(selectedDrama[3])}</span></span>
+        <span class="selected-drama-check" aria-hidden="true">✓</span>
+      </button>
+      <button type="button" class="reselect-drama" data-back="nominate">重新选择短剧</button>
+      <label class="nomination-field-label">魔改方向</label>
+      <div class="direction-select-display">${escapeHtml(selected || '选择方向')}<span aria-hidden="true">⌃</span></div>
+      ${remixDirectionOptions(selected)}
+      <label class="nomination-field-label" for="remix-description">详细描述方向</label>
+      <textarea id="remix-description" class="nomination-textarea" placeholder="例如：把男主改成腹黑霸总，加一段追妻火葬场…" data-state-key="inputs.remix_description">${escapeHtml(window.getLocalState('inputs.remix_description', ''))}</textarea>`;
+    return nominationPanel({ active: 'site', closeTarget: 'nominate', body, bodyClass: 'remix-direction-scroll' });
+  }
+
+  function directionSelect(selected) {
+    return `<select class="missing-direction-select" aria-label="魔改方向" data-state-key="selections.remix_direction">
+      <option value="" ${selected ? '' : 'selected'}>选择方向</option>
+      ${directions.map((direction) => `<option value="${direction}" ${selected === direction ? 'selected' : ''}>${direction}</option>`).join('')}
+    </select>`;
+  }
+
+  function nominateMissingScreen() {
+    const missingTitle = window.getLocalState('inputs.missing_resource_text', '');
+    const selectedDirection = window.getLocalState('selections.remix_direction', '');
+    const body = `<label class="nomination-field-label" for="missing-title">输入短剧</label>
+      <input id="missing-title" class="nomination-input" type="text" aria-label="输入短剧" placeholder="输入短剧名" value="${escapeHtml(missingTitle)}" data-state-key="inputs.missing_resource_text">
+      <div class="nomination-field-label">选择标签（最多可选3个）</div>
+      <div class="nomination-tags" role="group" aria-label="提名标签">${missingTags.map((tag) => `<button type="button" class="nomination-tag" data-nomination-tag aria-pressed="false">${tag}</button>`).join('')}</div>
+      <label class="nomination-field-label" for="missing-intro">输入简介</label>
+      <input id="missing-intro" class="nomination-input" type="text" placeholder="一句话简介" data-state-key="inputs.missing_intro" value="${escapeHtml(window.getLocalState('inputs.missing_intro', ''))}">
+      <div class="nomination-field-label">封面素材（选填）</div>
+      <div class="nomination-upload-row">
+        <label class="nomination-upload" for="missing-cover"><span aria-hidden="true">▣</span><span class="nomination-upload-label">上传封面</span></label><input id="missing-cover" class="nomination-file-input" type="file" accept="image/*" aria-label="上传封面">
+        <p>上传一张你心中的封面/参考图，帮我们更懂你想要的魔改效果，也会展示在心愿榜。</p>
+      </div>
+      <label class="nomination-field-label" for="missing-direction">魔改方向</label>
+      <div id="missing-direction">${directionSelect(selectedDirection)}</div>
+      <label class="nomination-field-label" for="missing-description">详细描述方向</label>
+      <textarea id="missing-description" class="nomination-textarea" placeholder="例如：把男主改成腹黑霸总，加一段追妻火葬场…" data-state-key="inputs.missing_description">${escapeHtml(window.getLocalState('inputs.missing_description', ''))}</textarea>`;
+    return nominationPanel({ active: 'missing', closeTarget: 'wishlist', body, bodyClass: 'nominate-missing-scroll', directClose: true });
+  }
+
+  function renewalDays() {
+    const signed = window.getLocalState('selections.renewal_checkin', '') === 'signed';
+    return `<div class="renewal-days" aria-label="7天签到">
+      ${[3, 3, 3, 3, 3, 3, 7].map((bonus, index) => {
+        const current = index === 0;
+        const disabled = !current || signed;
+        return `<button type="button" class="renewal-day ${current ? 'active' : ''} ${signed && current ? 'signed' : ''}" data-renewal-day data-day-index="${index}" aria-pressed="${signed && current}" ${disabled ? 'disabled' : ''}><strong>+${bonus}</strong><span>${current ? (signed ? '已签到' : '每天') : `第${index + 1}天`}</span></button>`;
+      }).join('')}
+    </div>`;
+  }
+
+  function renewalRankRow([file, title, votes], index) {
+    const voted = window.getLocalState(`selections.renewal_vote_${index}`, '') === 'voted';
+    return `<article class="renewal-rank-item">
+      <strong class="renewal-rank-number">${index + 1}</strong>
+      <div class="renewal-drama-link" role="link" tabindex="0" data-nav="detail" aria-label="${title}">${img(file, title, 'renewal-cover')}<span>${title}</span></div>
+      <div class="renewal-vote-copy"><strong class="renewal-count">${Number(votes) + (voted ? 1 : 0)}</strong><small>催更票</small><button type="button" data-renewal-vote data-renewal-index="${index}" aria-pressed="${voted}">${voted ? '已催' : '催更'}</button></div>
+    </article>`;
+  }
+
+  function renewedDramaList() {
+    const rows = renewedRows();
+    if (rows.length === 0) return '<div class="renewal-empty">还没催过剧，去下方榜单投票吧</div>';
+    return `<div class="renewed-drama-scroll horizontal-scroll">${rows.map(([file, title], index) => `<button type="button" class="renewed-drama" data-nav="detail">${img(file, title, 'renewed-cover')}<span>+1</span><strong>${title}</strong></button>`).join('')}</div>`;
+  }
+
+  function renewalCenterScreen() {
+    const signed = window.getLocalState('selections.renewal_checkin', '') === 'signed';
+    return `<section class="screen renewal-screen">
+      <div class="renewal-scroll">
+        <header class="renewal-header"><div data-back="profile">${backButton()}</div><h1>催更中心</h1></header>
+        <div class="renewal-kicker">ϟ 催更中心</div>
+        <section class="renewal-hero">
+          <div><h2>UP你是怎么睡得着的</h2><p>每日签到领催更票，投给正在连更的热剧，达标即申请加更。</p></div>
+          <div class="renewal-ticket"><strong>${renewalTicketCount()}</strong><span>催更票</span></div>
+        </section>
+        ${renewalDays()}
+        <div class="renewal-stats" aria-label="催更数据">
+          <div><strong>50</strong><span>魔改连载</span></div><div><strong>${renewedRows().length}</strong><span>我的催更</span></div><div><strong>1.9万</strong><span>参与人次</span></div><div><strong>0</strong><span>达标加更</span></div>
+        </div>
+        <section class="renewal-section"><h2>我催过的剧</h2>${renewedDramaList()}</section>
+        <section class="renewal-section renewal-ranking"><h2>连更热剧催更榜</h2><p class="renewal-rule">催更播放数最高的作品，制作人增加更多 / 提前更新，热度较低的作品可能面临停更。</p><div class="renewal-rank-list">${renewalDramas.map(renewalRankRow).join('')}</div></section>
+      </div>
+      ${renewalPrompt()}
+    </section>`;
+  }
+
+  const routes = {
+    nominate: nominateScreen,
+    'remix-direction': remixDirectionScreen,
+    'nominate-missing': nominateMissingScreen,
+    'renewal-center': renewalCenterScreen,
+  };
+
+  Object.entries(routes).forEach(([id, render]) => window.registerScreen(id, render));
+
+  function enhanceRenewalEntrypoints() {
+    if (app.dataset.screen !== 'profile') return;
+    const chaseCell = app.querySelector('.chase-cell');
+    if (!chaseCell) return;
+    chaseCell.dataset.nav = 'renewal-center';
+    chaseCell.setAttribute('role', 'button');
+    chaseCell.setAttribute('aria-label', '催更中心，催更想看的，投票增加更');
+    chaseCell.tabIndex = 0;
+  }
+
+  new MutationObserver(enhanceRenewalEntrypoints).observe(app, { childList: true });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || app.dataset.screen !== 'nominate-missing' || !app.querySelector('.nomination-panel')) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.navigate('wishlist');
+  }, true);
+
+  app.addEventListener('click', (event) => {
+    if (!(event.target instanceof Element)) return;
+    const tag = event.target.closest('[data-nomination-tag]');
+    if (tag && app.contains(tag)) {
+      const selected = tag.getAttribute('aria-pressed') === 'true';
+      const selectedCount = app.querySelectorAll('.nomination-tag[aria-pressed="true"]').length;
+      if (!selected && selectedCount >= 3) return;
+      tag.setAttribute('aria-pressed', String(!selected));
+      tag.classList.toggle('selected', !selected);
+      return;
+    }
+
+    const renewalVote = event.target.closest('[data-renewal-vote]');
+    if (renewalVote && app.contains(renewalVote)) {
+      const index = Number(renewalVote.dataset.renewalIndex);
+      const key = `selections.renewal_vote_${index}`;
+      if (window.getLocalState(key, '') === 'voted') {
+        window.setLocalState('selections.renewal_prompt', 'already');
+      } else if (renewalTicketCount() <= 0) {
+        window.setLocalState('selections.renewal_prompt', 'insufficient');
+      } else {
+        window.setLocalState(key, 'voted');
+        window.setLocalState('selections.renewal_prompt', 'success');
+      }
+      window.navigate('renewal-center', { replace: true });
+      return;
+    }
+
+    const promptClose = event.target.closest('[data-renewal-prompt-close]');
+    if (promptClose && app.contains(promptClose)) {
+      window.setLocalState('selections.renewal_prompt', '');
+      window.navigate('renewal-center', { replace: true });
+      return;
+    }
+
+    const renewalDay = event.target.closest('[data-renewal-day]');
+    if (renewalDay && app.contains(renewalDay)) {
+      if (renewalDay.disabled || renewalDay.dataset.dayIndex !== '0') return;
+      window.setLocalState('selections.renewal_checkin', 'signed');
+      window.navigate('renewal-center', { replace: true });
+      return;
+    }
+
+    const submit = event.target.closest('[data-nomination-submit]');
+    if (submit && app.contains(submit)) {
+      if (app.dataset.screen === 'nominate') {
+        window.showToast('请先选择一部短剧，再选择魔改方向');
+        app.querySelector('.nomination-drama')?.focus();
+        return;
+      }
+      const direction = window.getLocalState('selections.remix_direction', '');
+      if (app.dataset.screen === 'remix-direction') {
+        if (!direction) {
+          window.showToast('请选择一个魔改方向');
+          app.querySelector('.remix-direction-option')?.focus();
+          return;
+        }
+        window.setLocalState('selections.nomination_submitted', 'submitted');
+        window.showToast('提名已提交，感谢你的创意');
+        window.setTimeout(() => window.navigate('wishlist'), 300);
+        return;
+      }
+      if (app.dataset.screen === 'nominate-missing') {
+        const title = app.querySelector('#missing-title')?.value.trim() || '';
+        if (!title) {
+          window.showToast('请输入短剧名称');
+          app.querySelector('#missing-title')?.focus();
+          return;
+        }
+        if (!direction) {
+          window.showToast('请选择一个魔改方向');
+          app.querySelector('.missing-direction-select')?.focus();
+          return;
+        }
+        window.setLocalState('selections.nomination_submitted', 'submitted');
+        window.showToast('未收录短剧提名已提交');
+        window.setTimeout(() => window.navigate('wishlist'), 300);
+      }
+    }
+  });
+
+  app.addEventListener('change', (event) => {
+    const input = event.target instanceof Element ? event.target.closest('#missing-cover') : null;
+    if (!input || !app.contains(input)) return;
+    const label = app.querySelector('.nomination-upload-label');
+    const fileName = input.files?.[0]?.name || '';
+    if (label) label.textContent = fileName || '上传封面';
+    if (fileName) window.showToast(`已在本地选择 ${fileName}`);
+  });
+
+  app.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && app.querySelector('.renewal-prompt')) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.setLocalState('selections.renewal_prompt', '');
+      window.navigate('renewal-center', { replace: true });
+      return;
+    }
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+    const radio = event.target instanceof Element ? event.target.closest('.remix-direction-option[role="radio"]') : null;
+    if (!radio || !app.contains(radio)) return;
+    const radios = [...app.querySelectorAll('.remix-direction-option[role="radio"]')];
+    const currentIndex = radios.indexOf(radio);
+    if (currentIndex < 0) return;
+    event.preventDefault();
+    const delta = ['ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : -1;
+    const next = radios[(currentIndex + delta + radios.length) % radios.length];
+    next.focus({ preventScroll: true });
+    next.click();
+  });
+
+  window.addEventListener('shortdrama:statechange', (event) => {
+    const key = String(event.detail?.key || '');
+    if (key === 'inputs.nomination_query' && app.dataset.screen === 'nominate') {
+      window.navigate('nominate', { replace: true });
+      return;
+    }
+    if (key === 'selections.remix_direction' && ['remix-direction', 'nominate-missing'].includes(app.dataset.screen)) {
+      const selected = String(event.detail?.value || '');
+      for (const option of app.querySelectorAll('.remix-direction-option')) {
+        const active = option.dataset.stateValue === selected;
+        option.setAttribute('aria-checked', String(active));
+        option.tabIndex = active ? 0 : -1;
+        option.classList.toggle('selected', active);
+      }
+      const display = app.querySelector('.direction-select-display');
+      if (display) display.firstChild.textContent = selected || '选择方向';
+      const select = app.querySelector('.missing-direction-select');
+      if (select) select.value = selected;
+    }
+    if (key === 'selections.renewal_prompt' && app.dataset.screen === 'renewal-center') {
+      window.navigate('renewal-center', { replace: true });
+    }
+  });
+
+  window.ShortDramaNominationScreens = Object.freeze({ ...routes });
+})();
+
+
+/* pages/account.js */
+(() => {
+  'use strict';
+
+  const { icon, backButton } = window.ShortDramaComponents;
+
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  function accountHeader(title, backTarget) {
+    return `<header class="account-header">${backButton()}<h1>${title}</h1><span aria-hidden="true"></span></header>`
+      .replace('aria-label="返回"', `aria-label="返回" data-back="${backTarget}"`);
+  }
+
+  function profileBackdrop() {
+    const render = window.ShortDramaScreens?.profile;
+    return `<div class="account-backdrop" aria-hidden="true" inert>${render ? render() : ''}</div>`;
+  }
+
+  function settingsBody() {
+    const rows = [
+      ['绑定邀请码', '填写推广邀请码，绑定后用于归属关系', 'bind-invite'],
+      ['找回老账号', '通过身份信息或凭证找回历史账号', 'recover-account'],
+      ['清除缓存', '清理图片、视频、阅读缓存 0B', ''],
+      ['版本检测', '当前版本 AI短剧 v1.0.0', 'version-check'],
+    ];
+    return `<section class="account-settings-list">${rows.map(([title, copy, target]) => `<button class="account-setting-row" ${target ? `data-nav="${target}"` : 'data-state-key="selections.cacheStatus" data-state-value="0B"'}>
+      <span><strong>${title}</strong><small>${copy}</small></span><b aria-hidden="true">›</b>
+    </button>`).join('')}</section>`;
+  }
+
+  function identityScreen() {
+    return `<section class="screen identity-screen">
+      <div class="identity-card">
+        <div class="account-brand">AI</div><h1>身份凭证</h1>
+        <p>找回账号 / 换设备登录使用，请勿外泄给他人</p>
+        <div class="credential-code">邀请码：<strong>AEIY6Q</strong></div>
+        <div class="credential-qr" role="img" aria-label="原身份凭证二维码资产未随工程提供"><span>身份凭证</span><small>AEIY6Q</small></div>
+        <div class="credential-site">官网：https://ai-drama.com/</div>
+        <button class="account-primary" type="button" data-state-key="selections.identitySaved" data-state-value="saved">保存身份凭证</button>
+      </div>
+    </section>`;
+  }
+
+  function settingsScreen() {
+    return `<section class="screen account-screen"><div class="account-scroll">${accountHeader('设置', 'profile')}${settingsBody()}</div></section>`;
+  }
+
+  function recoverAccountScreen() {
+    return `<section class="screen account-screen"><div class="account-scroll recover-account-scroll">
+      ${accountHeader('找回老账号', 'settings')}
+      <section class="account-form-card"><h2>身份凭证截图</h2>
+        <label class="credential-upload"><input type="file" accept="image/*" aria-label="点击上传身份凭证截图"><span>＋</span><strong>点击上传身份凭证截图</strong></label>
+        <p>身份凭证可在「我的 → 身份凭证」中保存到相册。找回时上传该二维码截图，即可切换回原账号。</p>
+      </section>
+      <button class="account-primary account-bottom-action" type="button" data-account-action="recover">提交找回</button>
+    </div></section>`;
+  }
+
+  function versionCheckScreen() {
+    return `<section class="screen account-modal-screen">
+      <div class="account-backdrop settings-backdrop" aria-hidden="true" inert><div class="account-scroll">${accountHeader('设置', 'profile')}${settingsBody()}</div></div>
+      <div class="account-scrim"></div>
+      <section class="version-dialog" role="dialog" aria-modal="true" aria-labelledby="version-title">
+        <button class="account-close" data-back="settings" aria-label="关闭">×</button>
+        <h1 id="version-title">··◆ 版本检测 ◆··</h1><p>当前已是最新版本 AI短剧 v1.0.0</p>
+        <button class="account-primary" data-back="settings" data-modal-initial-focus>我知道了</button>
+      </section>
+    </section>`;
+  }
+
+  function customerServiceScreen() {
+    return `<section class="screen account-modal-screen">${profileBackdrop()}<div class="account-scrim"></div>
+      <section class="service-panel" role="dialog" aria-modal="true" aria-labelledby="service-title">
+        <div class="account-drag"></div><button class="account-close" data-back="profile" aria-label="关闭">×</button>
+        <header class="service-header"><div class="account-brand">AI</div><div><h1 id="service-title">在线客
